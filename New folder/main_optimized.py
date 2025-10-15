@@ -25,8 +25,10 @@ from langgraph.prebuilt import interrupt
 
 load_dotenv()
 
+# Initialize ChromaDB with optimizations
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
+# Use cached collections to avoid repeated initialization
 @lru_cache(maxsize=2)
 def get_collection(name: str):
     """Cached collection getter to avoid repeated initialization"""
@@ -38,21 +40,14 @@ def get_user_collection():
 def get_memories_collection():
     return get_collection("memories")
 
-def respond(self, message):
-    if self.mood == "happy":
-        return f"{self.name} (cheerful): 'That's wonderful! {message}'"
-    elif self.mood == "annoyed":
-        return f"{self.name} (annoyed): 'Let's just get this over with. {message}'"
-    elif self.friendliness > 0.7:
-        return f"{self.name} (friendly): 'I'm happy to help! {message}'"
-    else:
-        return f"{self.name}: '{message}'"
-
+# Thread pool for concurrent operations
 executor = ThreadPoolExecutor(max_workers=4)
 
+# Cache for recent memory searches
 memory_cache = {}
-CACHE_DURATION = 300
+CACHE_DURATION = 300  # 5 minutes
 
+# Keep InMemoryStore for LangGraph compatibility
 store = InMemoryStore()
 memory = InMemorySaver()
 
@@ -63,49 +58,6 @@ llm = ChatVertexAI(
     max_retries=6,
     stop=None,
 )
-
-class Agent:
-    def __init__(self, name, friendliness):
-        self.name = name
-        self.friendliness = friendliness
-        self.mood_score = 0.0
-
-    def update_mood(self, event):
-        # Simple observable print; remove later if noisy
-        print(f"[Agent] current_mood(before): {self.mood_score}")
-        if event == "user_rude":
-            self.mood_score = max(self.mood_score - 0.5, -1.0)
-        elif event == "user_nice":
-            self.mood_score = min(self.mood_score + 0.5, 1.0)
-        else:
-            if self.mood_score > 0.0:
-                self.mood_score = max(self.mood_score - 0.1, 0.0)
-            elif self.mood_score < 0.0:
-                self.mood_score = min(self.mood_score + 0.1, 0.0)
-        print(f"[Agent] current_mood(after): {self.mood_score}")
-
-    def get_mood_label(self):
-        if self.mood_score >= 0.5:
-            return "happy"
-        elif self.mood_score <= -0.5:
-            return "annoyed"
-        else:
-            return "neutral"
-
-    def get_personality_prompt(self):
-        mood_desc = {
-            "happy": "You are cheerful and enthusiastic; use upbeat, encouraging language.",
-            "annoyed": "You are a bit impatient; keep replies concise and direct, avoid sarcasm.",
-            "neutral": "You are calm and balanced; be clear, helpful, and polite.",
-        }
-        if self.friendliness > 0.7:
-            base_style = "You are very friendly, warm, and supportive in your responses."
-        elif self.friendliness > 0.4:
-            base_style = "You are moderately friendly and professional."
-        else:
-            base_style = "You are reserved and matter-of-fact; minimize small talk."
-
-        return f"{mood_desc.get(self.get_mood_label(), 'Maintain a balanced tone.')} {base_style}"
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -217,8 +169,9 @@ def duckduckgo(query: str) -> str:
             "format": "json",
             "no_redirect": 1,
             "no_html": 1
-        }, timeout=5)
+        }, timeout=5)  # Reduced timeout from 10 to 5 seconds
         data = response.json()
+        # Try multiple fields for better coverage
         for key in ["AbstractText", "Abstract", "Heading"]:
             if data.get(key):
                 return data[key]
@@ -229,6 +182,55 @@ def duckduckgo(query: str) -> str:
         return "No direct result found."
     except Exception as e:
         return f"Search error: {str(e)}"
+
+def wikipedia_search_optimized(query: str) -> str:
+    """Optimized Wikipedia search with better error handling and faster timeouts"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        # Single request approach - get summary directly
+        response = requests.get("https://en.wikipedia.org/api/rest_v1/page/summary/" + query.replace(" ", "_"), 
+            headers=headers, timeout=8)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if 'extract' in data:
+                summary = data['extract'][:800] + "..." if len(data['extract']) > 800 else data['extract']
+                return f"Wikipedia - {data.get('title', query)}:\n\n{summary}"
+        
+        # Fallback to API search if direct summary fails
+        search_response = requests.get("https://en.wikipedia.org/w/api.php", 
+            params={
+                "action": "query", "format": "json", "list": "search", 
+                "srsearch": query, "srlimit": 1
+            }, 
+            headers=headers, timeout=8
+        )
+        
+        if search_response.status_code == 200:
+            search_data = search_response.json()
+            pages = search_data.get("query", {}).get("search", [])
+            
+            if pages:
+                page_title = pages[0]["title"]
+                # Get summary using REST API
+                summary_response = requests.get(f"https://en.wikipedia.org/api/rest_v1/page/summary/{page_title.replace(' ', '_')}", 
+                    headers=headers, timeout=8)
+                
+                if summary_response.status_code == 200:
+                    summary_data = summary_response.json()
+                    if 'extract' in summary_data:
+                        summary = summary_data['extract'][:800] + "..." if len(summary_data['extract']) > 800 else summary_data['extract']
+                        return f"Wikipedia - {page_title}:\n\n{summary}"
+        
+        return "No Wikipedia articles found for this query."
+        
+    except requests.exceptions.Timeout:
+        return "Wikipedia search timed out."
+    except Exception as e:
+        return f"Wikipedia search error: {str(e)}"
 
 search_tool = Tool.from_function(
     name="duckduckgo",
@@ -243,34 +245,23 @@ search_tool = Tool.from_function(
 tools = [search_tool, human_assistance, saveUserInfo, getUserInfo, saveMemory, searchMemory]
 llm_with_tools = llm.bind_tools(tools)
 
-def detect_user_sentiment(message: str) -> str:
-
-    msg = message.lower()
-    rude_words = ["stupid", "dumb", "useless", "shut up", "idiot", "don't like"]
-    if any(word in msg for word in rude_words):
-        return "user_rude"
-    
-    nice_words = ["thank", "thanks", "appreciate", "great", "awesome", "please"]
-    if any(word in msg for word in nice_words):
-        return "user_nice"
-
+# -----------------------
+# OPTIMIZED CHATBOT NODE
+# -----------------------
 def chatbot(state: State):
-    user_id = "1"
+    """Optimized chatbot with cached memory context"""
+    user_id = "1"  # Get from config if needed
     
+    # Use cached memory context for better performance
     if state["messages"]:
         last_message = state["messages"][-1].content
         memory_context = get_cached_memory_context(last_message, user_id)
-        
-        sentiment = detect_user_sentiment(last_message)
-        agent.update_mood(sentiment)
-    
     else:
         memory_context = ""
     
+    # Optimized system prompt
     system_prompt = (
-        f"You are {agent.name}, a helpful assistant with access to long-term memory. "
-        f"{agent.get_personality_prompt()}"
-        f"If the user asks about your mood, describe your current mood in one simple sentence"
+        "You are a helpful assistant with access to long-term memory. "
         "Answer from your own knowledge for common questions. "
         "Use memory tools to remember and recall information about users. "
         "Only use search tools if you cannot answer or the user asks for a search."
@@ -294,8 +285,6 @@ graph = builder.compile(checkpointer=memory, store=store)
 
 config = {"configurable": {"thread_id": "1", "user_id": "1"}}
 
-agent = Agent(name="Micky", friendliness=0.8)
-
 def stream_graph_updates(user_input: str):
     """Optimized streaming with better error handling"""
     try:
@@ -308,6 +297,9 @@ def stream_graph_updates(user_input: str):
 
 # Main loop with optimizations
 if __name__ == "__main__":
+    print("🚀 Optimized AI Assistant started!")
+    print("Type 'quit', 'exit', or 'q' to stop.\n")
+    
     while True:
         try:
             user_input = input("User: ")
