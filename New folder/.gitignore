@@ -1,6 +1,7 @@
 # Google Cloud Service Account Keys (SENSITIVE - DO NOT COMMIT)
 *.json
 finalyearproject-473307-a9217e681ea4.json
+finalyearproject-473307-5f81b95b0dbf.json
 
 # Environment Variables (SENSITIVE)
 .env
@@ -40,6 +41,7 @@ env/
 
 # ChromaDB Database (Optional - uncomment if you want to ignore the database)
 # chroma_db/
+archive/
 
 # IDE
 .vscode/

@@ -4,6 +4,8 @@ import uuid
 import chromadb
 import asyncio
 import time
+import json
+import re
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 
@@ -12,6 +14,7 @@ from dotenv import load_dotenv
 from langchain.tools import Tool
 from langchain_core.tools import tool
 from langchain_google_vertexai import ChatVertexAI
+from langchain_core.messages.ai import AIMessage
 from typing_extensions import TypedDict
 
 from langgraph.graph import StateGraph, START, END
@@ -71,7 +74,6 @@ class Agent:
         self.mood_score = 0.0
 
     def update_mood(self, event):
-        # Simple observable print; remove later if noisy
         print(f"[Agent] current_mood(before): {self.mood_score}")
         if event == "user_rude":
             self.mood_score = max(self.mood_score - 0.5, -1.0)
@@ -276,8 +278,135 @@ def chatbot(state: State):
         "Only use search tools if you cannot answer or the user asks for a search."
         + memory_context
     )
-    msgs = [{"role": "system", "content": system_prompt}, *state["messages"]]
-    return {"messages": [llm_with_tools.invoke(msgs)]}
+    # Convert any langgraph Message objects (or dicts) into plain dicts
+    user_msgs = []
+    for m in state.get("messages", []) or []:
+        # try dict-style first, then object attributes
+        if isinstance(m, dict):
+            role = m.get("role") or m.get("type") or "user"
+            content = m.get("content")
+        else:
+            role = getattr(m, "role", None) or getattr(m, "type", None) or "user"
+            content = getattr(m, "content", None)
+
+        # only include non-empty string content
+        if isinstance(content, str) and content.strip():
+            # Normalize role names to ones accepted by chat models
+            normalized_role = str(role).lower()
+            if normalized_role in ("human", "human_user", "human_user"):
+                normalized_role = "user"
+            if normalized_role not in ("system", "user", "assistant"):
+                # default to user for any unknown role labels
+                normalized_role = "user"
+
+            user_msgs.append({"role": normalized_role, "content": content.strip()})
+
+    # Always include the system prompt first
+    msgs = [{"role": "system", "content": system_prompt}] + user_msgs
+
+    # Defensive: ensure at least one non-empty part is sent to Vertex
+    if not any(m.get("content") for m in msgs):
+        # Add a minimal fallback user prompt so the request includes a parts field
+        msgs.append({"role": "user", "content": "Hello."})
+
+    # Debug logging of outgoing prompt parts to help diagnose future errors
+    #print("[DEBUG] Sending prompt parts to LLM:", msgs)
+
+    # Build a mapping of tool names to local callables for structured function calls
+    tools_map = {
+        "duckduckgo": duckduckgo,
+        "human_assistance": human_assistance,
+        "saveUserInfo": saveUserInfo,
+        "getUserInfo": getUserInfo,
+        "saveMemory": saveMemory,
+        "searchMemory": searchMemory,
+    }
+
+    # Use the structured-call helper which expects the model to return JSON when it wants to call a tool
+    response = _call_llm_with_tools_support(msgs, tools_map)
+
+    #try:
+        #print("[DEBUG] Final LLM response type:", type(response), "repr:", repr(response))
+    #except Exception:
+        #pass
+
+    return {"messages": [response]}
+
+def _call_llm_with_tools_support(msgs, tools_map, max_rounds: int = 2):
+    """Call the LLM and handle structured tool calls expressed as JSON.
+
+    Protocol (simple):
+    - The model will return plain text answer or a JSON object indicating a tool call:
+      {"tool": "tool_name", "args": { ... }}
+    - If a tool call is returned, this function will run the mapped Python function and
+      send the tool output back to the model in a follow-up call so the model can
+      produce a final answer.
+    """
+    round = 0
+    current_msgs = list(msgs)
+    while round < max_rounds:
+        #print("[DEBUG] _call_llm_with_tools_support: invoking LLM, round", round + 1)
+        resp = llm.invoke(current_msgs)
+        content = ""
+        try:
+            content = getattr(resp, "content", "") if resp is not None else ""
+        except Exception:
+            content = str(resp)
+
+        # Try to extract JSON tool call if present
+        json_obj = None
+        stripped = content.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                json_obj = json.loads(stripped)
+            except Exception:
+                json_obj = None
+        else:
+            # Search for a JSON object inside the text
+            m = re.search(r"(\{[\s\S]*\})", content)
+            if m:
+                try:
+                    json_obj = json.loads(m.group(1))
+                except Exception:
+                    json_obj = None
+
+        if not json_obj:
+            # No tool call requested; return this response
+            return resp
+
+        # If JSON tool call found, extract tool and args
+        tool_name = json_obj.get("tool")
+        args = json_obj.get("args") or {}
+        print(f"[INFO] Model requested tool '{tool_name}' with args: {args}")
+
+        # Execute mapped tool if available
+        tool_func = tools_map.get(tool_name)
+        tool_output = None
+        if tool_func:
+            try:
+                # support single 'query' arg common for search tools
+                if isinstance(args, dict) and "query" in args and callable(tool_func):
+                    tool_output = tool_func(args.get("query"))
+                elif isinstance(args, dict) and len(args) == 1 and callable(tool_func):
+                    # pass the only value
+                    tool_output = tool_func(list(args.values())[0])
+                elif callable(tool_func):
+                    tool_output = tool_func(**args) if isinstance(args, dict) else tool_func(args)
+                else:
+                    tool_output = str(tool_func)
+            except Exception as e:
+                tool_output = f"Tool execution error: {e}"
+        else:
+            tool_output = f"Unknown tool requested: {tool_name}"
+
+        # Append the tool result into the conversation and continue the loop
+        # We add as a system message so the model can incorporate it before replying
+        current_msgs.append({"role": "system", "content": f"Tool '{tool_name}' returned: {tool_output}"})
+        round += 1
+
+    # After exhausting rounds, return the last response if any
+    return resp
+
 
 builder.add_node("chatbot", chatbot)
 
