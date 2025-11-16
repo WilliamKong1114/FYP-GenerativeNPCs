@@ -435,7 +435,18 @@ def stream_graph_updates(user_input: str):
         print(f"Error: {e}")
         print("Assistant: I encountered an error. Please try again.")
 
-# Main loop with optimizations
+def get_stream_graph_updates(user_input: str) -> str:
+    """Get the full assistant reply as a string"""
+    reply_parts = []
+    try:
+        for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}, config):
+            for value in event.values():
+                reply_parts.append(value["messages"][-1].content)
+    except Exception as e:
+        return f"Error: {e}. I encountered an error. Please try again."
+    
+    return " ".join(reply_parts)
+
 if __name__ == "__main__":
     while True:
         try:

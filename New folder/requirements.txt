@@ -1,0 +1,7 @@
+chromadb
+python-dotenv
+langchain
+langchain-core
+langchain-google-vertexai
+streamlit
+pandas

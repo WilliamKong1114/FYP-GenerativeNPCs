@@ -1,5 +1,5 @@
 # Google Cloud Service Account Keys (SENSITIVE - DO NOT COMMIT)
-*.json
+# Ignore only the service account files used for this project (be specific)
 finalyearproject-473307-a9217e681ea4.json
 finalyearproject-473307-5f81b95b0dbf.json
 
@@ -39,8 +39,11 @@ venv/
 ENV/
 env/
 
-# ChromaDB Database (Optional - uncomment if you want to ignore the database)
-# chroma_db/
+# ChromaDB Database (ignore runtime DB files but keep repository structure)
+# Ignore SQLite files created by ChromaDB (adjust if you want to track them)
+chroma_db/*.sqlite3
+chroma_db/*.db
+chroma_db/*/  # runtime collection folders (usually safe to ignore if large)
 archive/
 
 # IDE
