@@ -1,11 +1,11 @@
 import os
 import requests
 import uuid
-import chromadb
 import asyncio
 import time
 import json
 import re
+import chromadb
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 
@@ -26,13 +26,14 @@ from langgraph.store.memory import InMemoryStore
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import interrupt
 
+import manage_data
+
 load_dotenv()
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
 @lru_cache(maxsize=2)
 def get_collection(name: str):
-    """Cached collection getter to avoid repeated initialization"""
     return chroma_client.get_or_create_collection(name)
 
 def get_user_collection():
@@ -103,9 +104,9 @@ class Agent:
         if self.friendliness > 0.7:
             base_style = "You are very friendly, warm, and supportive in your responses."
         elif self.friendliness > 0.4:
-            base_style = "You are moderately friendly and professional."
+            base_style = "You are in an average normal mood."
         else:
-            base_style = "You are reserved and matter-of-fact; minimize small talk."
+            base_style = "You minimize small talk. Trying to be as brief as possible."
 
         return f"{mood_desc.get(self.get_mood_label(), 'Maintain a balanced tone.')} {base_style}"
 
@@ -211,42 +212,10 @@ def get_cached_memory_context(query: str, user_id: str) -> str:
     except:
         return ""
 
-def duckduckgo(query: str) -> str:
-    """Fast DuckDuckGo search with reduced timeout"""
-    try:
-        response = requests.get("https://api.duckduckgo.com/", params={
-            "q": query,
-            "format": "json",
-            "no_redirect": 1,
-            "no_html": 1
-        }, timeout=5)
-        data = response.json()
-        for key in ["AbstractText", "Abstract", "Heading"]:
-            if data.get(key):
-                return data[key]
-        related = data.get("RelatedTopics") or []
-        for item in related:
-            if isinstance(item, dict) and item.get("Text"):
-                return item["Text"]
-        return "No direct result found."
-    except Exception as e:
-        return f"Search error: {str(e)}"
-
-search_tool = Tool.from_function(
-    name="duckduckgo",
-    description=(
-        "Search the web using DuckDuckGo. "
-        "Use ONLY if you cannot answer from your own knowledge or the user explicitly asks for a search. "
-        "If the tool returns 'No direct result found', try to answer from your own knowledge."
-    ),
-    func=duckduckgo
-)
-
-tools = [search_tool, human_assistance, saveUserInfo, getUserInfo, saveMemory, searchMemory]
+tools = [human_assistance, saveUserInfo, getUserInfo, saveMemory, searchMemory]
 llm_with_tools = llm.bind_tools(tools)
 
 def detect_user_sentiment(message: str) -> str:
-
     msg = message.lower()
     rude_words = ["stupid", "dumb", "useless", "shut up", "idiot", "don't like"]
     if any(word in msg for word in rude_words):
@@ -265,20 +234,24 @@ def chatbot(state: State):
         
         sentiment = detect_user_sentiment(last_message)
         agent.update_mood(sentiment)
-    
     else:
         memory_context = ""
-    
-    system_prompt = (
-        f"You are {agent.name}, a helpful assistant with access to long-term memory. "
-        f"{agent.get_personality_prompt()}"
-        f"If the user asks about your mood, describe your current mood in one simple sentence"
-        "Answer from your own knowledge for common questions. "
-        "Use memory tools to remember and recall information about users. "
-        "Only use search tools if you cannot answer or the user asks for a search."
-        + memory_context
-    )
-    # Convert any langgraph Message objects (or dicts) into plain dicts
+
+    system_prompt = f"""
+        You are {agent.name}, a villager.
+        You live in a quiet wooden-house village on flat land, 
+        surrounded by forests and rivers under calm, pleasant skies.
+        {agent.get_personality_prompt()}
+        Answer from your own knowledge for common questions.
+        Use memory tools to remember and recall information about users.
+        You have a friendly and warm personality.
+        You have access to your long-term memory.
+        Here is the related memory context to make the conversation more related to current situation:{memory_context}.
+        Remember each detail data and information that you consider important 
+        in constructing a more complete and detailed user profile about the user 
+        during a conversation between user and you. Examples include but are not limited to:
+        user's preferences, interests, hobbies, important life events, personal anecdotes, etc."""
+
     user_msgs = []
     for m in state.get("messages", []) or []:
         # try dict-style first, then object attributes
@@ -301,20 +274,13 @@ def chatbot(state: State):
 
             user_msgs.append({"role": normalized_role, "content": content.strip()})
 
-    # Always include the system prompt first
     msgs = [{"role": "system", "content": system_prompt}] + user_msgs
 
-    # Defensive: ensure at least one non-empty part is sent to Vertex
     if not any(m.get("content") for m in msgs):
         # Add a minimal fallback user prompt so the request includes a parts field
         msgs.append({"role": "user", "content": "Hello."})
 
-    # Debug logging of outgoing prompt parts to help diagnose future errors
-    #print("[DEBUG] Sending prompt parts to LLM:", msgs)
-
-    # Build a mapping of tool names to local callables for structured function calls
     tools_map = {
-        "duckduckgo": duckduckgo,
         "human_assistance": human_assistance,
         "saveUserInfo": saveUserInfo,
         "getUserInfo": getUserInfo,
@@ -322,26 +288,10 @@ def chatbot(state: State):
         "searchMemory": searchMemory,
     }
 
-    # Use the structured-call helper which expects the model to return JSON when it wants to call a tool
     response = _call_llm_with_tools_support(msgs, tools_map)
-
-    #try:
-        #print("[DEBUG] Final LLM response type:", type(response), "repr:", repr(response))
-    #except Exception:
-        #pass
-
     return {"messages": [response]}
 
 def _call_llm_with_tools_support(msgs, tools_map, max_rounds: int = 2):
-    """Call the LLM and handle structured tool calls expressed as JSON.
-
-    Protocol (simple):
-    - The model will return plain text answer or a JSON object indicating a tool call:
-      {"tool": "tool_name", "args": { ... }}
-    - If a tool call is returned, this function will run the mapped Python function and
-      send the tool output back to the model in a follow-up call so the model can
-      produce a final answer.
-    """
     round = 0
     current_msgs = list(msgs)
     while round < max_rounds:
@@ -407,7 +357,6 @@ def _call_llm_with_tools_support(msgs, tools_map, max_rounds: int = 2):
     # After exhausting rounds, return the last response if any
     return resp
 
-
 builder.add_node("chatbot", chatbot)
 
 tool_node = ToolNode(tools=tools)
@@ -428,17 +377,19 @@ agent = Agent(name="Micky", friendliness=0.8)
 def stream_graph_updates(user_input: str):
     """Optimized streaming with better error handling"""
     try:
+        # Use 'user' role (accepted by the chat system) instead of 'player'
         for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}, config):
             for value in event.values():
-                print("Assistant:", value["messages"][-1].content)
+                print(f"{agent.name}:", value["messages"][-1].content)
     except Exception as e:
         print(f"Error: {e}")
-        print("Assistant: I encountered an error. Please try again.")
+        print(f"{agent.name}: I encountered an error. Please try again.")
 
 def get_stream_graph_updates(user_input: str) -> str:
     """Get the full assistant reply as a string"""
     reply_parts = []
     try:
+        # ensure we always use accepted role names
         for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}, config):
             for value in event.values():
                 reply_parts.append(value["messages"][-1].content)
@@ -447,16 +398,34 @@ def get_stream_graph_updates(user_input: str) -> str:
     
     return " ".join(reply_parts)
 
+def get_conversation_records() -> list[dict[str, str]]:
+    """Retrieve the conversation records from the current thread."""
+    state = graph.get_state(config)
+    messages = state.values.get("messages", [])
+    records = []
+    for msg in messages:
+        if hasattr(msg, 'type') and hasattr(msg, 'content'):
+            records.append({"role": msg.type, "content": msg.content})
+        elif isinstance(msg, dict):
+            records.append({"role": msg.get("role", "unknown"), "content": msg.get("content", "")})
+    return records
+
 if __name__ == "__main__":
     while True:
         try:
             user_input = input("User: ")
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
+                records = get_conversation_records()
+                #print("Conversation records:", records)
+                manage_data.add_conversation_records(records, user_id="1")
                 break
             stream_graph_updates(user_input)
         except KeyboardInterrupt:
             print("\nGoodbye!")
+            records = get_conversation_records()
+            #print("Conversation records:", records)
+            manage_data.add_conversation_records(records, user_id="1")
             break
         except Exception as e:
             print(f"Unexpected error: {e}")
