@@ -9,7 +9,7 @@ import chromadb
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 
-from typing import Annotated
+from typing import Annotated, Optional
 from dotenv import load_dotenv
 from langchain.tools import Tool
 from langchain_core.tools import tool
@@ -226,7 +226,7 @@ def detect_user_sentiment(message: str) -> str:
         return "user_nice"
 
 def chatbot(state: State):
-    user_id = "1"
+    user_id = config.get("configurable", {}).get("user_id", "1")
     
     if state["messages"]:
         last_message = state["messages"][-1].content
@@ -244,7 +244,6 @@ def chatbot(state: State):
         {agent.get_personality_prompt()}
         Answer from your own knowledge for common questions.
         Use memory tools to remember and recall information about users.
-        You have a friendly and warm personality.
         You have access to your long-term memory.
         Here is the related memory context to make the conversation more related to current situation:{memory_context}.
         Remember each detail data and information that you consider important 
@@ -370,17 +369,36 @@ builder.add_edge("chatbot", END)
 memory = InMemorySaver()
 graph = builder.compile(checkpointer=memory, store=store)
 
-config = {"configurable": {"thread_id": "1", "user_id": "1"}}
+try:
+    runtime_user_id = manage_data.get_or_create_user_id()
+except Exception:
+    runtime_user_id = "1"
+
+config = {"configurable": {"thread_id": "1", "user_id": runtime_user_id}}
+print(f"Using user_id={config['configurable']['user_id']}")
 
 agent = Agent(name="Micky", friendliness=0.8)
 
 def stream_graph_updates(user_input: str):
     """Optimized streaming with better error handling"""
     try:
-        # Use 'user' role (accepted by the chat system) instead of 'player'
+        # Save the incoming user line into ChromaDB (conversation JSON)
+        try:
+            uid = config.get("configurable", {}).get("user_id", "default_user")
+            manage_data.add_conversation_line(user_id=uid, role="user", text=user_input)
+        except Exception:
+            pass
+
+        # Stream and capture assistant replies, saving each line
         for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}, config):
             for value in event.values():
-                print(f"{agent.name}:", value["messages"][-1].content)
+                reply = value["messages"][-1].content
+                print(f"{agent.name}:", reply)
+                try:
+                    uid = config.get("configurable", {}).get("user_id", "default_user")
+                    manage_data.add_conversation_line(user_id=uid, role="assistant", text=reply)
+                except Exception:
+                    pass
     except Exception as e:
         print(f"Error: {e}")
         print(f"{agent.name}: I encountered an error. Please try again.")
@@ -389,10 +407,18 @@ def get_stream_graph_updates(user_input: str) -> str:
     """Get the full assistant reply as a string"""
     reply_parts = []
     try:
+        # Save incoming user line into ChromaDB
+        uid = config.get("configurable", {}).get("user_id", "default_user")
+        manage_data.add_conversation_line(user_id=uid, role="user", text=user_input)
+
         # ensure we always use accepted role names
         for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}, config):
             for value in event.values():
-                reply_parts.append(value["messages"][-1].content)
+                reply = value["messages"][-1].content
+                reply_parts.append(reply)
+                # Save assistant reply line into ChromaDB
+                uid = config.get("configurable", {}).get("user_id", "default_user")
+                manage_data.add_conversation_line(user_id=uid, role="assistant", text=reply)
     except Exception as e:
         return f"Error: {e}. I encountered an error. Please try again."
     
@@ -410,22 +436,57 @@ def get_conversation_records() -> list[dict[str, str]]:
             records.append({"role": msg.get("role", "unknown"), "content": msg.get("content", "")})
     return records
 
+def summarize_conversation_and_store(user_id: str) -> Optional[str]:
+    """Fetch conversation lines for `user_id`, ask the LLM for a concise summary,
+    store the summary into the `memories` collection and return it.
+    """
+    try:
+        convs = manage_data.list_conversations(user_id)
+        if not convs:
+            return None
+
+        parts = []
+        for c in convs:
+            role = c.get("role", "unknown")
+            text = c.get("text") or c.get("content") or ""
+            ts = c.get("ts")
+            parts.append(f"[{role}] {text}")
+
+        convo_text = "\n".join(parts[-35:])  # limit size a bit
+
+        system = {
+            "role": "system",
+            "content": "You are a concise summarizer. Produce one short (<=35 words) informative and concise summary sentence that captures the user's profile, preferences, important facts and the main intent from the conversation."
+        }
+        user_msg = {"role": "user", "content": f"Summarize the following conversation into one concise informative sentence:\n\n{convo_text}"}
+
+        resp = llm.invoke([system, user_msg])
+        summary = getattr(resp, "content", None) or str(resp)
+
+        # Store summary into semantic memories for retrieval
+        manage_data.add_memories([summary], user_id=user_id)
+
+        # Also print summary locally
+        print("--- Conversation summary saved to memories ---")
+        print(summary)
+        return summary
+    except Exception as e:
+        print(f"Failed to summarize conversation: {e}")
+        return None
+
 if __name__ == "__main__":
     while True:
         try:
             user_input = input("User: ")
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
-                records = get_conversation_records()
-                #print("Conversation records:", records)
-                manage_data.add_conversation_records(records, user_id="1")
+                # Summarize the conversation and store the concise summary into memories
+                summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
                 break
             stream_graph_updates(user_input)
         except KeyboardInterrupt:
             print("\nGoodbye!")
-            records = get_conversation_records()
-            #print("Conversation records:", records)
-            manage_data.add_conversation_records(records, user_id="1")
+            summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
             break
         except Exception as e:
             print(f"Unexpected error: {e}")

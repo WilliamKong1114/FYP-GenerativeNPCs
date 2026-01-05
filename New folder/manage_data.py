@@ -4,8 +4,10 @@ import chromadb
 import uuid
 import json
 import datetime
+import time
 import os
 from typing import List, Dict, Any, Tuple, Optional
+from agent_memory import get_or_create_user_id, init_db, add_message, recap
 
 def get_client(path: str = "./chroma_db") -> chromadb.PersistentClient:
     """Return a PersistentClient connected to the local Chroma DB path."""
@@ -44,6 +46,45 @@ def add_conversation_records(records: List[Dict[str, Any]], user_id: str = "defa
     metas = [{"type": "conversation", "user_id": user_id} for _ in records]
     col.add(ids=ids, documents=docs, metadatas=metas)
     return ids
+
+def add_conversation_line(user_id: str, role: str, text: str, path: str = "./chroma_db") -> Optional[str]:
+    """Add a single conversation line as a JSON record (role, text, ts). Returns the new id or None."""
+    rec = {"role": role, "text": text, "ts": int(time.time())}
+    ids = add_conversation_records([rec], user_id=user_id, path=path)
+    return ids[0] if ids else None
+
+def list_conversations(user_id: str, path: str = "./chroma_db") -> List[Dict[str, Any]]:
+    """Return conversation records for a user as parsed JSON objects."""
+    client = get_client(path)
+    try:
+        col = client.get_collection("conversations")
+    except Exception:
+        col = client.get_or_create_collection("conversations")
+
+    try:
+        data = col.get(where={"user_id": user_id})
+    except Exception:
+        # Fallback: get all and filter
+        data = col.get()
+
+    docs = data.get("documents", []) or []
+    results: List[Dict[str, Any]] = []
+    for d in docs:
+        try:
+            obj = json.loads(d) if isinstance(d, str) else d
+        except Exception:
+            # if document is plain text, try to parse basic role prefix
+            obj = {"role": "unknown", "text": str(d), "ts": None}
+        # ensure user_id present from metadata is consistent
+        results.append(obj)
+
+    # sort by ts if available
+    try:
+        results.sort(key=lambda x: x.get("ts") or 0)
+    except Exception:
+        pass
+
+    return results
 
 def delete_user(user_id: str, path: str = "./chroma_db") -> str:
     """Delete all data (memories and user info) by a given user_id."""
@@ -134,6 +175,8 @@ def main() -> None:
                 "3) Create new user\n"
                 "4) Delete a user\n"
                 "5) List users with descriptions and memories\n"
+                "6) Show current user\n"
+                "7) Show conversation\n"
                 "Choose (or 'exit' to quit): "
             )
 
@@ -146,6 +189,8 @@ def main() -> None:
                 text = input("Memory text: ")
                 uid = input("User id (default: default_user): ") or "default_user"
                 ids = add_memories([text], user_id=uid)
+                conn = init_db()
+                add_message(conn, uid, "user", text)
                 print("Added memory ids:", ids)
             elif choice == "2":
                 uid = input("User id: ")
@@ -170,6 +215,12 @@ def main() -> None:
                     print("-" * 40)
                 except Exception as e:
                     print(f"Failed to list users: {e}")
+            elif choice == "6":
+                # Local agent identity helper
+                uid = get_or_create_user_id()
+                print(f"Local agent user id: {uid}")
+            elif choice == "7":
+                print(list_conversations(get_or_create_user_id()))
             else:
                 print("No action")
         except KeyboardInterrupt:
