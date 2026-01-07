@@ -108,6 +108,20 @@ def delete_memories_for_user(user_id: str, path: str = "./chroma_db") -> str:
     except Exception as e:
         return f"Error deleting memories for user {user_id}: {e}"
 
+def delete_conversations_for_user(user_id: str, path: str = "./chroma_db") -> str:
+    """Delete all conversation records by a given user_id."""
+    client = get_client(path)
+    try:
+        col = client.get_collection("conversations")
+    except Exception:
+        return f"No conversations found for {user_id}"
+        
+    try:
+        col.delete(where={"user_id": user_id})
+        return f"Deleted conversations for {user_id}"
+    except Exception as e:
+        return f"Error deleting conversations for user {user_id}: {e}"
+
 def list_users_with_memories(path: str = "./chroma_db") -> List[Dict[str, Any]]:
     """Return a list of users with their description and a list of their memories.
 

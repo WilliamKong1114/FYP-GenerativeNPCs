@@ -98,8 +98,8 @@ class Agent:
     def get_personality_prompt(self):
         mood_desc = {
             "happy": "You are cheerful and enthusiastic; use upbeat, encouraging language.",
-            "annoyed": "You are a bit impatient; keep replies concise and direct, avoid sarcasm.",
-            "neutral": "You are calm and balanced; be clear, helpful, and polite.",
+            "annoyed": "You are a bit impatient; keep replies concise and direct.",
+            "neutral": "You are calm and balanced.",
         }
         if self.friendliness > 0.7:
             base_style = "You are very friendly, warm, and supportive in your responses."
@@ -231,29 +231,34 @@ def chatbot(state: State):
     if state["messages"]:
         last_message = state["messages"][-1].content
         memory_context = get_cached_memory_context(last_message, user_id)
-        
         sentiment = detect_user_sentiment(last_message)
         agent.update_mood(sentiment)
     else:
         memory_context = ""
 
     system_prompt = f"""
-        You are {agent.name}, a villager.
-        You live in a quiet wooden-house village on flat land, 
-        surrounded by forests and rivers under calm, pleasant skies.
+        You are {agent.name}, a villager living in a village on flat land surrounded by forests and rivers.
         {agent.get_personality_prompt()}
-        Answer from your own knowledge for common questions.
-        Use memory tools to remember and recall information about users.
-        You have access to your long-term memory.
-        Here is the related memory context to make the conversation more related to current situation:{memory_context}.
-        Remember each detail data and information that you consider important 
-        in constructing a more complete and detailed user profile about the user 
-        during a conversation between user and you. Examples include but are not limited to:
-        user's preferences, interests, hobbies, important life events, personal anecdotes, etc."""
+        Answer common questions using your own knowledge.
+        Use memory tools to remember and recall information about users. 
+        Minimize greetings, salutations, or sign-offs. Start immediately with the answer.
+        Your memory context to make the conversation relevant to current situation:{memory_context}.
+        
+        Respond in a casual, human-like tone that feels natural. 
+        - Use short sentences, contractions, and everyday language. 
+        - Avoid sounding overly formal or poetic. 
+        - Keep it simple and conversational, like chatting with a friend. 
+        - Avoid repeating previous statements unless necessary.
+        - Adapt responses to the user’s latest input and keep them fresh.
+        - Show curiosity and light enthusiasm naturally.
+
+        Example:
+        If someone mentions going fishing by the river, you might say:
+        "Ah, the river just down there! That’s convenient. Hope you catch some fish! Fishing is such a great way to relax, don’t you think?"
+        """
 
     user_msgs = []
     for m in state.get("messages", []) or []:
-        # try dict-style first, then object attributes
         if isinstance(m, dict):
             role = m.get("role") or m.get("type") or "user"
             content = m.get("content")
@@ -263,12 +268,10 @@ def chatbot(state: State):
 
         # only include non-empty string content
         if isinstance(content, str) and content.strip():
-            # Normalize role names to ones accepted by chat models
             normalized_role = str(role).lower()
             if normalized_role in ("human", "human_user", "human_user"):
                 normalized_role = "user"
             if normalized_role not in ("system", "user", "assistant"):
-                # default to user for any unknown role labels
                 normalized_role = "user"
 
             user_msgs.append({"role": normalized_role, "content": content.strip()})
@@ -276,7 +279,6 @@ def chatbot(state: State):
     msgs = [{"role": "system", "content": system_prompt}] + user_msgs
 
     if not any(m.get("content") for m in msgs):
-        # Add a minimal fallback user prompt so the request includes a parts field
         msgs.append({"role": "user", "content": "Hello."})
 
     tools_map = {
@@ -451,12 +453,16 @@ def summarize_conversation_and_store(user_id: str) -> Optional[str]:
             text = c.get("text") or c.get("content") or ""
             ts = c.get("ts")
             parts.append(f"[{role}] {text}")
-
-        convo_text = "\n".join(parts[-35:])  # limit size a bit
+        
+        convo_Length = 200
+        convo_text = "\n".join(parts[-convo_Length:])
 
         system = {
             "role": "system",
-            "content": "You are a concise summarizer. Produce one short (<=35 words) informative and concise summary sentence that captures the user's profile, preferences, important facts and the main intent from the conversation."
+            "content": 
+                f"""You are a concise memory summarizer for a generative agent. 
+                Produce one short, factual sentence (<={convo_Length} words) that captures the user's identity/profile, lasting preferences, important facts, 
+                and the main intent or plan revealed by the conversation. Output only the sentence — no explanations."""
         }
         user_msg = {"role": "user", "content": f"Summarize the following conversation into one concise informative sentence:\n\n{convo_text}"}
 
@@ -480,7 +486,6 @@ if __name__ == "__main__":
             user_input = input("User: ")
             if user_input.lower() in ["quit", "exit", "q"]:
                 print("Goodbye!")
-                # Summarize the conversation and store the concise summary into memories
                 summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
                 break
             stream_graph_updates(user_input)
