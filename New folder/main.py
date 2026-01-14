@@ -42,16 +42,6 @@ def get_user_collection():
 def get_memories_collection():
     return get_collection("memories")
 
-def respond(self, message):
-    if self.mood == "happy":
-        return f"{self.name} (cheerful): 'That's wonderful! {message}'"
-    elif self.mood == "annoyed":
-        return f"{self.name} (annoyed): 'Let's just get this over with. {message}'"
-    elif self.friendliness > 0.7:
-        return f"{self.name} (friendly): 'I'm happy to help! {message}'"
-    else:
-        return f"{self.name}: '{message}'"
-
 executor = ThreadPoolExecutor(max_workers=4)
 
 memory_cache = {}
@@ -72,7 +62,7 @@ class Agent:
     def __init__(self, name, friendliness):
         self.name = name
         self.friendliness = friendliness
-        self.mood_score = 0.0
+        self.mood_score = 0.5
 
     def update_mood(self, event):
         print(f"[Agent] current_mood(before): {self.mood_score}")
@@ -102,11 +92,11 @@ class Agent:
             "neutral": "You are calm and balanced.",
         }
         if self.friendliness > 0.7:
-            base_style = "You are very friendly, warm, and supportive in your responses."
+            base_style = "You are very friendly and supportive. Show genuine interest in what the user says."
         elif self.friendliness > 0.4:
-            base_style = "You are in an average normal mood."
+            base_style = "You are in a normal, easy-going mood. Keep things casual and pleasant."
         else:
-            base_style = "You minimize small talk. Trying to be as brief as possible."
+            base_style = "You prefer to keep things brief and practical, with minimal small talk."
 
         return f"{mood_desc.get(self.get_mood_label(), 'Maintain a balanced tone.')} {base_style}"
 
@@ -125,7 +115,6 @@ def saveUserInfo(info: str, config: RunnableConfig) -> str:
     """Save user information to long-term memory."""
     user_id = config["configurable"].get("user_id", "default_user")
     try:
-        # Save to ChromaDB using cached collection
         get_user_collection().upsert(
             ids=[user_id],
             documents=[info],
@@ -140,7 +129,6 @@ def getUserInfo(config: RunnableConfig) -> str:
     """Retrieve user information from long-term memory."""
     user_id = config["configurable"].get("user_id", "default_user")
     try:
-        # Get from ChromaDB using cached collection
         results = get_user_collection().get(ids=[user_id])
         if results["documents"] and len(results["documents"]) > 0:
             return results["documents"][0]
@@ -159,7 +147,6 @@ def saveMemory(memory: str, config: RunnableConfig) -> str:
             documents=[memory],
             metadatas=[{"type": "memory", "user_id": user_id}]
         )
-        # Clear cache when new memory is added
         memory_cache.clear()
         return f"Memory saved with ID: {memory_id}"
     except Exception as e:
@@ -212,7 +199,7 @@ def get_cached_memory_context(query: str, user_id: str) -> str:
     except:
         return ""
 
-tools = [human_assistance, saveUserInfo, getUserInfo, saveMemory, searchMemory]
+tools = [human_assistance, saveUserInfo, getUserInfo]
 llm_with_tools = llm.bind_tools(tools)
 
 def detect_user_sentiment(message: str) -> str:
@@ -285,8 +272,8 @@ def chatbot(state: State):
         "human_assistance": human_assistance,
         "saveUserInfo": saveUserInfo,
         "getUserInfo": getUserInfo,
-        "saveMemory": saveMemory,
-        "searchMemory": searchMemory,
+        #"saveMemory": saveMemory,
+        #"searchMemory": searchMemory,
     }
 
     response = _call_llm_with_tools_support(msgs, tools_map)
@@ -296,7 +283,6 @@ def _call_llm_with_tools_support(msgs, tools_map, max_rounds: int = 2):
     round = 0
     current_msgs = list(msgs)
     while round < max_rounds:
-        #print("[DEBUG] _call_llm_with_tools_support: invoking LLM, round", round + 1)
         resp = llm.invoke(current_msgs)
         content = ""
         try:
@@ -304,7 +290,6 @@ def _call_llm_with_tools_support(msgs, tools_map, max_rounds: int = 2):
         except Exception:
             content = str(resp)
 
-        # Try to extract JSON tool call if present
         json_obj = None
         stripped = content.strip()
         if stripped.startswith("{") and stripped.endswith("}"):
@@ -322,24 +307,19 @@ def _call_llm_with_tools_support(msgs, tools_map, max_rounds: int = 2):
                     json_obj = None
 
         if not json_obj:
-            # No tool call requested; return this response
             return resp
 
-        # If JSON tool call found, extract tool and args
         tool_name = json_obj.get("tool")
         args = json_obj.get("args") or {}
         print(f"[INFO] Model requested tool '{tool_name}' with args: {args}")
 
-        # Execute mapped tool if available
         tool_func = tools_map.get(tool_name)
         tool_output = None
         if tool_func:
             try:
-                # support single 'query' arg common for search tools
                 if isinstance(args, dict) and "query" in args and callable(tool_func):
                     tool_output = tool_func(args.get("query"))
                 elif isinstance(args, dict) and len(args) == 1 and callable(tool_func):
-                    # pass the only value
                     tool_output = tool_func(list(args.values())[0])
                 elif callable(tool_func):
                     tool_output = tool_func(**args) if isinstance(args, dict) else tool_func(args)
@@ -384,6 +364,11 @@ agent = Agent(name="Micky", friendliness=0.8)
 def stream_graph_updates(user_input: str):
     """Optimized streaming with better error handling"""
     try:
+        # Clear cached memory context for fresh responses on each new user input
+        try:
+            memory_cache.clear()
+        except Exception:
+            pass
         # Save the incoming user line into ChromaDB (conversation JSON)
         try:
             uid = config.get("configurable", {}).get("user_id", "default_user")
@@ -409,6 +394,11 @@ def get_stream_graph_updates(user_input: str) -> str:
     """Get the full assistant reply as a string"""
     reply_parts = []
     try:
+        # Clear cached memory context so the retrieval uses up-to-date memories
+        try:
+            memory_cache.clear()
+        except Exception:
+            pass
         # Save incoming user line into ChromaDB
         uid = config.get("configurable", {}).get("user_id", "default_user")
         manage_data.add_conversation_line(user_id=uid, role="user", text=user_input)
@@ -443,16 +433,24 @@ def summarize_conversation_and_store(user_id: str) -> Optional[str]:
     store the summary into the `memories` collection and return it.
     """
     try:
-        convs = manage_data.list_conversations(user_id)
+        memory_cache.clear()
+        convs = get_conversation_records()
         if not convs:
-            return None
+            convs = manage_data.list_conversations(user_id)
+            if not convs:
+                return None
 
         parts = []
         for c in convs:
-            role = c.get("role", "unknown")
-            text = c.get("text") or c.get("content") or ""
-            ts = c.get("ts")
-            parts.append(f"[{role}] {text}")
+            if isinstance(c, dict):
+                role = c.get("role", "unknown")
+                text = c.get("text") or c.get("content") or ""
+            else:
+                role = "unknown"
+                text = str(c)
+            if not text or not isinstance(text, str) or not text.strip():
+                continue
+            parts.append(f"[{role}] {text.strip()}")
         
         convo_Length = 200
         convo_text = "\n".join(parts[-convo_Length:])
