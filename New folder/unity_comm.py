@@ -20,11 +20,17 @@ class UnityClient:
         finally:
             self.sock = None
 
-    def send_command(self, cmd: dict):
+    def send_command(self, cmd: dict, wait_for_response: bool = False):
         payload = json.dumps(cmd, separators=(',', ':')) + "\n"
         try:
             self._connect()
             self.sock.sendall(payload.encode('utf-8'))
+            if wait_for_response:
+                # Basic line-based response reading
+                self.sock.settimeout(self.timeout)
+                response_data = self.sock.recv(4096)
+                if response_data:
+                    return json.loads(response_data.decode('utf-8').strip())
         except Exception:
             try:
                 if self.sock:
@@ -32,12 +38,22 @@ class UnityClient:
             finally:
                 self.sock = None
             raise
+        return None
 
-    def move_forward(self, distance: float = 1.0):
-        self.send_command({"action": "move", "direction": "forward", "distance": float(distance)})
+    def get_state(self):
+        return self.send_command({"action": "get_state"}, wait_for_response=True)
 
-    def move_backward(self, distance: float = 1.0):
-        self.send_command({"action": "move", "direction": "backward", "distance": float(distance)})
+    def move_up(self, distance: float = 1.0):
+        self.send_command({"action": "move", "direction": "up", "distance": float(distance)})
+
+    def move_down(self, distance: float = 1.0):
+        self.send_command({"action": "move", "direction": "down", "distance": float(distance)})
+
+    def move_right(self, distance: float = 1.0):
+        self.send_command({"action": "move", "direction": "right", "distance": float(distance)})
+   
+    def move_left(self, distance: float = 1.0):
+        self.send_command({"action": "move", "direction": "left", "distance": float(distance)})
 
     def stop(self):
         self.send_command({"action": "stop"})

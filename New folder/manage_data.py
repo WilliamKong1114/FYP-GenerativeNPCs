@@ -8,10 +8,7 @@ import time
 import os
 from typing import List, Dict, Any, Tuple, Optional
 from agent_memory import get_or_create_user_id, init_db, add_message, recap
-
-def get_client(path: str = "./chroma_db") -> chromadb.PersistentClient:
-    """Return a PersistentClient connected to the local Chroma DB path."""
-    return chromadb.PersistentClient(path=path)
+from chroma_client import get_client
 
 def add_user_info(user_id: str, info: str, path: str = "./chroma_db") -> str:
     """Add a new user"""
