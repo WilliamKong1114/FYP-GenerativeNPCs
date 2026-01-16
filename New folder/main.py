@@ -1,3 +1,5 @@
+# .\.venv\Scripts\python.exe main.py
+
 import os
 import requests
 import uuid
