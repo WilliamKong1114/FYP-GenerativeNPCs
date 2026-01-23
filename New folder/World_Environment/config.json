@@ -11,12 +11,14 @@
           "name": "Table",
           "type": "object",
           "game_object_name": "Table",
+          "status": 0,
           "affordances": ["cook", "dinner", "eat", "sit", "lunch", "breakfast", "meal", "food", "table", "dishes"]
         },
         {
           "name": "Bed",
           "type": "object",
           "game_object_name": "Bed",
+          "status": 0,
           "affordances": ["sleep", "rest", "nap", "read", "book", "relax", "bed", "woke", "wake"]
         }
       ]
@@ -30,6 +32,7 @@
           "name": "Land",
           "type": "object",
           "game_object_name": "Land",
+          "status": 0,
           "affordances": ["garden", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
         }
       ]
@@ -43,6 +46,7 @@
           "name": "Table",
           "type": "object",
           "game_object_name": "Table",
+          "status": 0,
           "affordances": ["work", "craft", "woodworking", "tools", "project", "repair", "assemble"]
         }
       ]

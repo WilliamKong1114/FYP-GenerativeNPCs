@@ -1,9 +1,11 @@
 import sqlite3
 import json
 import uuid
+import os
 from typing import Optional, Dict, Any, List
 
-DB_PATH = "./places.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "places.db")
 
 def _get_conn(path: str = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path)

@@ -2,9 +2,16 @@
 
 import json
 import os
-from skills.environment_tree import EnvironmentTree
+import sys
 
-CONFIG_FILE = "environment_config.json"
+# Add the root directory to sys.path so we can import from World_Environment
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from World_Environment.environment_tree import EnvironmentTree
+
+# Path relative to this script
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
@@ -18,6 +25,7 @@ def process_node(tree, config_node, parent_node=None):
     node_type = config_node.get("type", "object")
     affordances = config_node.get("affordances", [])
     game_object = config_node.get("game_object_name")
+    status = config_node.get("status", 0) # 0 = empty, 1 = occupied
     
     current_node = None
     
@@ -42,6 +50,10 @@ def process_node(tree, config_node, parent_node=None):
             current_node.game_object_name = game_object
             updated = True
 
+        if current_node.status != status:
+            current_node.status = status
+            updated = True
+
         if updated:
             tree.save_node(current_node)
     else:
@@ -51,7 +63,8 @@ def process_node(tree, config_node, parent_node=None):
             node_type, 
             parent=parent_node, 
             affordances=affordances, 
-            game_object_name=game_object
+            game_object_name=game_object,
+            status=status
         )
 
     config_children = config_node.get("children", [])

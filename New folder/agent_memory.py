@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 ID_FILE = Path.home() / ".agent_temp_user_id"
-DB_FILE = Path("agent_memory.sqlite")
+DB_FILE = Path("agent_memory.db")
 
 def get_or_create_user_id(id_file_path: Path = ID_FILE) -> str:
     if id_file_path.exists():

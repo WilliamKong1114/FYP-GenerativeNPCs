@@ -2,7 +2,7 @@ import sqlite3
 import json
 import time
 import re
-from skills.environment_tree import EnvironmentTree
+from World_Environment.environment_tree import EnvironmentTree
 from unity_comm import UnityClient
 
 def get__plan():
@@ -77,7 +77,6 @@ def execute_plan():
             except Exception as e:
                 print(f"--> Error communicating with Unity: {e}")
         
-        # Simulate duration
         time.sleep(1) 
 
     print("\nPlan Execution Complete.")

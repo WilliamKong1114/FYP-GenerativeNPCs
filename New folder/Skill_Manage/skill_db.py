@@ -1,6 +1,6 @@
 import json
 from typing import List, Dict, Any
-from skills.chroma_skill_lib import add_skill as add_skill_lib
+from Skill_Manage.chroma_skill_lib import add_skill as add_skill_lib
 from chroma_client import get_client
 
 def list_skills(chroma_path: str = "./chroma_db") -> List[Dict[str, Any]]:

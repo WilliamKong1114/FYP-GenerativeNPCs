@@ -1,4 +1,4 @@
-from skills.environment_tree import EnvironmentTree
+from World_Environment.environment_tree import EnvironmentTree
 
 def test_search():
     tree = EnvironmentTree()
@@ -9,7 +9,7 @@ def test_search():
     for task in tasks:
         node = tree.find_suitable_location(task)
         if node:
-            print(f"Task: '{task}' -> Location: {node.name} (Type: {node.node_type}) -> Unity Object: {tree.get_unity_path(node)}")
+            print(f"Task: '{task}' -> Location: {node.name} (Type: {node.node_type}) -> Unity Object: {tree.get_location(node)}")
         else:
             print(f"Task: '{task}' -> No suitable location found.")
 
