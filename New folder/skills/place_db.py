@@ -3,7 +3,7 @@ import json
 import uuid
 from typing import Optional, Dict, Any, List
 
-DB_PATH = "./skills_places.db"
+DB_PATH = "./places.db"
 
 def _get_conn(path: str = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path)

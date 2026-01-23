@@ -26,7 +26,6 @@ class UnityClient:
             self._connect()
             self.sock.sendall(payload.encode('utf-8'))
             if wait_for_response:
-                # Basic line-based response reading
                 self.sock.settimeout(self.timeout)
                 response_data = self.sock.recv(4096)
                 if response_data:
@@ -43,17 +42,8 @@ class UnityClient:
     def get_state(self):
         return self.send_command({"action": "get_state"}, wait_for_response=True)
 
-    def move_up(self, distance: float = 1.0):
-        self.send_command({"action": "move", "direction": "up", "distance": float(distance)})
-
-    def move_down(self, distance: float = 1.0):
-        self.send_command({"action": "move", "direction": "down", "distance": float(distance)})
-
-    def move_right(self, distance: float = 1.0):
-        self.send_command({"action": "move", "direction": "right", "distance": float(distance)})
-   
-    def move_left(self, distance: float = 1.0):
-        self.send_command({"action": "move", "direction": "left", "distance": float(distance)})
+    def move_to(self, target_name: str):
+        self.send_command({"action": "move_to", "target": target_name})
 
     def stop(self):
         self.send_command({"action": "stop"})

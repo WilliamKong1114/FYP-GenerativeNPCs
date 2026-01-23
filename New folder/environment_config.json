@@ -1,0 +1,57 @@
+{
+  "name": "World",
+  "type": "area",
+  "children": [
+    {
+      "name": "House [Samson]",
+      "type": "area",
+      "affordances": ["hygiene", "bathroom", "living", "tidy", "home"],
+      "children": [
+        {
+          "name": "Table",
+          "type": "object",
+          "game_object_name": "Table",
+          "affordances": ["cook", "dinner", "eat", "sit", "lunch", "breakfast", "meal", "food", "table", "dishes"]
+        },
+        {
+          "name": "Bed",
+          "type": "object",
+          "game_object_name": "Bed",
+          "affordances": ["sleep", "rest", "nap", "read", "book", "relax", "bed", "woke", "wake"]
+        }
+      ]
+    },
+    {
+      "name": "Garden",
+      "type": "area",
+      "affordances": ["walk", "leisure", "outside", "nature"],
+      "children": [
+        {
+          "name": "Land",
+          "type": "object",
+          "game_object_name": "Land",
+          "affordances": ["garden", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+        }
+      ]
+    },
+    {
+      "name": "Workshop",
+      "type": "area",
+      "affordances": ["work", "craft", "woodworking", "tools", "project", "repair", "assemble"],
+      "children": [
+        {
+          "name": "Table",
+          "type": "object",
+          "game_object_name": "Table",
+          "affordances": ["work", "craft", "woodworking", "tools", "project", "repair", "assemble"]
+        }
+      ]
+    },
+    {
+      "name": "River",
+      "type": "area",
+      "affordances": ["river", "wash", "water", "cleanse", "swim", "fish", "outside", "nature"],
+      "children": []
+    }
+  ]
+}

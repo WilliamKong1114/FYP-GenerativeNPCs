@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from langchain_google_vertexai import ChatVertexAI
 
 load_dotenv()
-PLANS_DB = Path("plans.sqlite3")
+PLANS_DB = Path("plans.db")
 vertexai.init(project="finalyearproject-473307", location="us-central1")
 
 llm = ChatVertexAI(
