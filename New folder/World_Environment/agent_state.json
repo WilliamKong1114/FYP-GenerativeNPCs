@@ -1,0 +1,41 @@
+{
+    "agents": {
+        "Samson": {
+            "location": "Garden",
+            "action": "Ben carefully selected ripe pumpkins from the vines. @ World: Garden: Farm",
+            "interaction_object": "Farm",
+            "interaction_area": "Garden"
+        }
+    },
+    "objects": {
+        "House [Samson]": {
+            "Table": {
+                "state": "empty"
+            },
+            "Bed": {
+                "state": "empty"
+            }
+        },
+        "Garden": {
+            "Land": {
+                "state": "empty"
+            },
+            "Farm": {
+                "state": "occupied"
+            }
+        },
+        "Workshop": {
+            "Table": {
+                "state": "empty"
+            }
+        },
+        "House [Jimmy]": {
+            "Table": {
+                "state": "empty"
+            },
+            "Bed": {
+                "state": "empty"
+            }
+        }
+    }
+}

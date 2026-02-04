@@ -7,7 +7,7 @@ import datetime
 import time
 import os
 from typing import List, Dict, Any, Tuple, Optional
-from agent_memory import get_or_create_user_id, init_db, add_message, recap
+from agent_memory import get_or_create_user_id, init_db, add_message, recap, ID_FILE
 from chroma_client import get_client
 
 def add_user_info(user_id: str, info: str, path: str = "./chroma_db") -> str:
@@ -188,6 +188,7 @@ def main() -> None:
                 "5) List users with descriptions and memories\n"
                 "6) Show current user\n"
                 "7) Show conversation\n"
+                "8) Set active user\n"
                 "Choose (or 'exit' to quit): "
             )
 
@@ -232,6 +233,13 @@ def main() -> None:
                 print(f"Local agent user id: {uid}")
             elif choice == "7":
                 print(list_conversations(get_or_create_user_id()))
+            elif choice == "8":
+                new_uid = input("Enter new user ID to activate: ").strip()
+                if new_uid:
+                    ID_FILE.write_text(new_uid)
+                    print(f"Active user set to: {new_uid}")
+                else:
+                    print("No user ID entered.")
             else:
                 print("No action")
         except KeyboardInterrupt:

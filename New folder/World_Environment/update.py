@@ -24,8 +24,7 @@ def process_node(tree, config_node, parent_node=None):
     name = config_node.get("name")
     node_type = config_node.get("type", "object")
     affordances = config_node.get("affordances", [])
-    game_object = config_node.get("game_object_name")
-    status = config_node.get("status", 0) # 0 = empty, 1 = occupied
+    state = config_node.get("state", "empty")
     
     current_node = None
     
@@ -45,13 +44,9 @@ def process_node(tree, config_node, parent_node=None):
         if set(current_node.affordances) != set(affordances):
             current_node.affordances = affordances
             updated = True
-            
-        if current_node.game_object_name != game_object:
-            current_node.game_object_name = game_object
-            updated = True
 
-        if current_node.status != status:
-            current_node.status = status
+        if current_node.state != state:
+            current_node.state = state
             updated = True
 
         if updated:
@@ -63,8 +58,7 @@ def process_node(tree, config_node, parent_node=None):
             node_type, 
             parent=parent_node, 
             affordances=affordances, 
-            game_object_name=game_object,
-            status=status
+            state=state
         )
 
     config_children = config_node.get("children", [])

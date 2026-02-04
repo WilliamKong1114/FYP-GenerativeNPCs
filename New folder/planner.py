@@ -61,8 +61,8 @@ def plan_prompt(background: str, today: Optional[str] = None) -> str:
     now = today or datetime.date.today().isoformat()
     instruction = (
         "You are a helpful planning assistant.\n"
-        "Given the person's profile and activities below, generate a concise plan for today\n"
-        "Reply with a short, numbered list of broad strokes for the day which follows the format with time section.\n\n"
+        "Given the person's profile and activities below, generate a concise plan for today as it would realistically occur in a medieval village setting\n"
+        "Reply with a short, numbered list of broad strokes for the day which follows the format with time section.\n"
         "Use short sentences, contractions, and everyday language"
         "Avoid sounding overly formal or poetic"
         "Avoid repeating previous statements unless necessary"
@@ -86,10 +86,11 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str) -> Dict[st
     system_msg = {"role": "system", "content": f"You are a helpful planning assistant that breaks down plans into finer-grained actions with time durations of {duration_prompt}."}
     user_msg = {"role": "user", "content": (
             f"Given the following plan description, break it down into finer-grained actions with provided time durations of {duration_prompt} for each sentence.\n"
+            "The plan should be as it would realistically occur in a medieval village setting"
             f"Plan Description:\n{parent_plan.get('description')}\n"
             "Output each step as a sentence. Return a concise, numbered list of actions."
             "Requirements:\n"
-            "1) Keep each item to one 10 to 15 words sentence\n"
+            "1) Keep each item to one 10 to 15 words sentence with the name of the location or object that the action is performed at\n"
             "2) Use relevant details to prioritize tasks and habits\n"
             "3) Avoid sounding overly formal or poetic\n"
             "4) Try to elaborate or extend the content where possible with reasonable activity\n"
@@ -140,7 +141,8 @@ if __name__ == "__main__":
     now = datetime.datetime.now().replace(second=0, microsecond=0)
     persona = ("Name: Ben (age: 19)\n"
         "Innate traits: friendly, outgoing. "
-        "Ben is a young villager living in a village on flat land surrounded by forests and rivers. "
+        "Ben is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge."
+        "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons."
         "He enjoys helping others like growing fruit or vegetables, fishing, and woodworking. "
         "He has a small workshop where he crafts simple furniture and tools. "
         "Ben is also keen on learning new skills from travelers passing through the village.\n "

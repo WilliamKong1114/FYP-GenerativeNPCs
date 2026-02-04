@@ -79,7 +79,7 @@ class Agent:
                 self.mood_score = min(self.mood_score + 0.1, 0.0)
         print(f"[Agent] current_mood(after): {self.mood_score}")
 
-    def get_mood_label(self):
+    def get_mood(self):
         if self.mood_score >= 0.5:
             return "happy"
         elif self.mood_score <= -0.5:
@@ -100,7 +100,7 @@ class Agent:
         else:
             base_style = "You prefer to keep things brief and practical, with minimal small talk."
 
-        return f"{mood_desc.get(self.get_mood_label(), 'Maintain a balanced tone.')} {base_style}"
+        return f"{mood_desc.get(self.get_mood(), 'Maintain a balanced tone.')} {base_style}"
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -231,7 +231,7 @@ def chatbot(state: State):
         Answer common questions using your own knowledge.
         Use memory tools to remember and recall information about users. 
         Minimize greetings, salutations, or sign-offs. Start immediately with the answer.
-        Your memory context to make the conversation relevant to current situation:{memory_context}.
+        Access the memory context to make the conversation relevant to current situation:{memory_context}.
         
         Respond in a casual, human-like tone that feels natural. 
         - Use short sentences, contractions, and everyday language. 
@@ -469,7 +469,6 @@ def summarize_conversation_and_store(user_id: str) -> Optional[str]:
         resp = llm.invoke([system, user_msg])
         summary = getattr(resp, "content", None) or str(resp)
 
-        # Store summary into semantic memories for retrieval
         manage_data.add_memories([summary], user_id=user_id)
 
         # Also print summary locally

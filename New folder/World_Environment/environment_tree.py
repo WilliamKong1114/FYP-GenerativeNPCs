@@ -10,7 +10,7 @@ DB_PATH = os.path.join(BASE_DIR, "places.db")
 
 class EnvironmentNode:
     def __init__(self, name: str, node_type: str, parent: Optional['EnvironmentNode'] = None, 
-                 uuid_str: str = None, affordances: List[str] = None, game_object_name: str = None, status: int = 0):
+                 uuid_str: str = None, affordances: List[str] = None, game_object_name: str = None, state: str = "empty"):
         self.name = name
         self.node_type = node_type # "area", "subarea", "object"
         self.parent = parent
@@ -18,7 +18,7 @@ class EnvironmentNode:
         self.uuid = uuid_str if uuid_str else str(uuid.uuid4())
         self.affordances = affordances if affordances else []
         self.game_object_name = game_object_name
-        self.status = status
+        self.state = state
     def add_child(self, child: 'EnvironmentNode'):
         self.children.append(child)
         child.parent = self
@@ -34,15 +34,15 @@ class EnvironmentNode:
 class EnvironmentTree:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
-        self._init_db()
+        self.init_db()
         self.root: Optional[EnvironmentNode] = None
         self.nodes: Dict[str, EnvironmentNode] = {} # uuid -> node
 
-    def _get_conn(self):
+    def get_conn(self):
         return sqlite3.connect(self.db_path)
 
-    def _init_db(self):
-        conn = self._get_conn()
+    def init_db(self):
+        conn = self.get_conn()
         conn.execute("""
         CREATE TABLE IF NOT EXISTS environment_tree (
             uuid TEXT PRIMARY KEY,
@@ -51,14 +51,14 @@ class EnvironmentTree:
             parent_uuid TEXT,
             affordances TEXT, -- JSON list of strings
             game_object_name TEXT,
-            status INTEGER
+            state TEXT
         )""")
         conn.commit()
         conn.close()
 
     def load(self):
-        conn = self._get_conn()
-        cur = conn.execute("SELECT uuid, name, type, parent_uuid, affordances, game_object_name, status FROM environment_tree")
+        conn = self.get_conn()
+        cur = conn.execute("SELECT uuid, name, type, parent_uuid, affordances, game_object_name, state FROM environment_tree")
         rows = cur.fetchall()
         conn.close()
 
@@ -67,9 +67,9 @@ class EnvironmentTree:
 
         # First pass: Create all nodes
         for r in rows:
-            uid, name, ntype, pid, aff_text, gname, status = r
+            uid, name, ntype, pid, aff_text, gname, state = r
             affs = json.loads(aff_text) if aff_text else []
-            node = EnvironmentNode(name, ntype, uuid_str=uid, affordances=affs, game_object_name=gname, status=status)
+            node = EnvironmentNode(name, ntype, uuid_str=uid, affordances=affs, game_object_name=gname, state=state)
             self.nodes[uid] = node
             if pid:
                 temp_parent_map[uid] = pid
@@ -91,15 +91,15 @@ class EnvironmentTree:
         conn = self._get_conn()
         aff_text = json.dumps(node.affordances)
         conn.execute("""
-            INSERT OR REPLACE INTO environment_tree (uuid, name, type, parent_uuid, affordances, game_object_name, status)
+            INSERT OR REPLACE INTO environment_tree (uuid, name, type, parent_uuid, affordances, game_object_name, state)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (node.uuid, node.name, node.node_type, node.parent.uuid if node.parent else None, aff_text, node.game_object_name, node.status))
+        """, (node.uuid, node.name, node.node_type, node.parent.uuid if node.parent else None, aff_text, node.game_object_name, node.state))
         conn.commit()
         conn.close()
         
     def add_node(self, name: str, node_type: str, parent: Optional[EnvironmentNode] = None, 
-                 affordances: List[str] = None, game_object_name: str = None, status: int = 0) -> EnvironmentNode:
-        node = EnvironmentNode(name, node_type, parent, affordances=affordances, game_object_name=game_object_name, status=status)
+                 affordances: List[str] = None, game_object_name: str = None, state: str = "empty") -> EnvironmentNode:
+        node = EnvironmentNode(name, node_type, parent, affordances=affordances, game_object_name=game_object_name, state=state)
         if parent:
             parent.add_child(node)
         elif not self.root:
@@ -109,38 +109,51 @@ class EnvironmentTree:
         self.save_node(node)
         return node
 
-    def find_suitable_location(self, action: str) -> Optional[EnvironmentNode]:
+    def find_suitable_location(self, action: str) -> List[EnvironmentNode]:
         if not self.root:
             self.load()
             if not self.root:
-                return None
+                return []
                 
-        matches = []
+        matches = [] # List of tuples (node, score)
+        action_lower = action.lower()
         
         queue = [self.root]
         while queue:
             current = queue.pop(0)
+            score = 0
             for aff in current.affordances:
-                if aff.lower() in action.lower():
-                    matches.append(current)
-                    break
+                if aff.lower() in action_lower:
+                    score += 1
+            
+            if score > 0:
+                matches.append((current, score))
             
             queue.extend(current.children)
         
         if not matches:
-            return None
+            return []
         
-        # Filter for unoccupied nodes (status == 0)
-        unoccupied = [m for m in matches if m.status == 0]
+        # Sort by score descending
+        matches.sort(key=lambda x: x[1], reverse=True)
+        best_score = matches[0][1]
+        pool_with_scores = [m for m in matches if m[1] == best_score]
         
-        # If we have unoccupied nodes, prefer them
-        pool = unoccupied if unoccupied else matches
+        # Filter pool for unoccupied ones if possible
+        unoccupied = [m for m in pool_with_scores if m[0].state == "empty"]
+        final_pool = unoccupied if unoccupied else pool_with_scores
         
-        objects = [m for m in pool if m.node_type == "object"]
-        if objects:
-            return objects[0]
-        
-        return pool[0]
+        # Prefer objects
+        objects = [m for m in final_pool if m[0].node_type == "object"]
+        target = objects[0][0] if objects else final_pool[0][0]
+
+        # Construct path from target back to root
+        path = []
+        curr = target
+        while curr:
+            path.insert(0, curr)
+            curr = curr.parent
+        return path
 
     def get_location(self, node: EnvironmentNode) -> str:
         return node.game_object_name if node.game_object_name else node.name

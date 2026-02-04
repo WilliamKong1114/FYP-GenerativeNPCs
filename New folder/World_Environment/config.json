@@ -5,21 +5,19 @@
     {
       "name": "House [Samson]",
       "type": "area",
-      "affordances": ["hygiene", "bathroom", "living", "tidy", "home"],
+      "affordances": ["Samson", "hygiene", "bathroom", "living", "tidy", "home"],
       "children": [
         {
-          "name": "Table",
+          "name": "Table_Samson",
           "type": "object",
-          "game_object_name": "Table",
-          "status": 0,
-          "affordances": ["cook", "dinner", "eat", "sit", "lunch", "breakfast", "meal", "food", "table", "dishes"]
+          "state": "empty",
+          "affordances": ["Samson", "House", "cook", "dinner", "eat", "sit", "lunch", "breakfast", "meal", "food", "table", "dishes"]
         },
         {
-          "name": "Bed",
+          "name": "Bed_Samson",
           "type": "object",
-          "game_object_name": "Bed",
-          "status": 0,
-          "affordances": ["sleep", "rest", "nap", "read", "book", "relax", "bed", "woke", "wake"]
+          "state": "empty",
+          "affordances": ["Samson", "House", "sleep", "rest", "nap", "read", "book", "relax", "bed", "woke", "wake"]
         }
       ]
     },
@@ -31,11 +29,22 @@
         {
           "name": "Land",
           "type": "object",
-          "game_object_name": "Land",
-          "status": 0,
-          "affordances": ["garden", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+          "state": "empty",
+          "affordances": ["Garden", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+        },        
+        {
+          "name": "Farm",
+          "type": "object",
+          "state": "empty",
+          "affordances": ["Farm", "amimals", "feed", "milk", "care", "outside", "nature"]
         }
       ]
+    },
+        {
+      "name": "Storage",
+      "type": "area",
+      "affordances": ["store", "tools", "materials", "supplies", "organize"],
+      "children": []
     },
     {
       "name": "Workshop",
@@ -45,17 +54,42 @@
         {
           "name": "Table",
           "type": "object",
-          "game_object_name": "Table",
-          "status": 0,
-          "affordances": ["work", "craft", "woodworking", "tools", "project", "repair", "assemble"]
+          "state": "empty",
+          "affordances": ["Workshop", "work", "craft", "woodworking", "tools", "project", "repair", "assemble"]
         }
       ]
     },
     {
       "name": "River",
       "type": "area",
-      "affordances": ["river", "wash", "water", "cleanse", "swim", "fish", "outside", "nature"],
-      "children": []
+      "affordances": ["River", "wash", "water", "cleanse", "swim", "fish", "outside", "nature"],
+      "children": [
+        {
+          "name": "River Bank",
+          "type": "object",
+          "state": "empty",
+          "affordances": ["River", "wash", "water", "cleanse", "swim", "fish"]
+        }
+      ]
+    },
+    {
+      "name": "House [Jimmy]",
+      "type": "area",
+      "affordances": ["Jimmy", "neighbor", "visit", "socialize", "friend", "chat", "talk"],
+      "children": [
+        {
+          "name": "Table_Jimmy",
+          "type": "object",
+          "state": "empty",
+          "affordances": ["Jimmy", "House", "cook", "dinner", "eat", "sit", "lunch", "breakfast", "meal", "food", "table", "dishes"]
+        },
+        {
+          "name": "Bed_Jimmy",
+          "type": "object",
+          "state": "empty",
+          "affordances": ["Jimmy", "House", "sleep", "rest", "nap", "read", "book", "relax", "bed", "woke", "wake"]
+        }
+      ]
     }
   ]
 }

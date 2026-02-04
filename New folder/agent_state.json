@@ -1,0 +1,38 @@
+{
+    "agents": {
+        "Samson": {
+            "location": "Table_Samson",
+            "action": "eat breakfast at the dining table @ Table_Samson",
+            "interaction_object": "unknown",
+            "interaction_area": "unknown"
+        }
+    },
+    "objects": {
+        "House [Samson]": {
+            "Bed": {
+                "state": "empty"
+            },
+            "Table": {
+                "state": "empty"
+            }
+        },
+        "Garden": {
+            "Farm": {
+                "state": "empty"
+            },
+            "Land": {
+                "state": "empty"
+            }
+        },
+        "Workshop": {
+            "Table": {
+                "state": "empty"
+            }
+        },
+        "River": {
+            "River Bank": {
+                "state": "empty"
+            }
+        }
+    }
+}

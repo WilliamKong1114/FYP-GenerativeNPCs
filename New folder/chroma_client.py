@@ -17,18 +17,15 @@ def get_client(path: str = "./chroma_db") -> chromadb.PersistentClient:
         return client
 
     try:
+        client = chromadb.PersistentClient(path=path)
+        client.heartbeat() # Test connection
+    except Exception:
+        # Fallback for very old versions or specific issues, though generic constructor should work
         settings = chromadb.config.Settings(
-            chroma_api_impl="chromadb.api.segment.SegmentAPI",
-            chroma_sysdb_impl="chromadb.db.impl.sqlite.SqliteDB",
-            chroma_producer_impl="chromadb.db.impl.sqlite.SqliteDB",
-            chroma_consumer_impl="chromadb.db.impl.sqlite.SqliteDB",
-            chroma_segment_manager_impl="chromadb.segment.impl.manager.local.LocalSegmentManager",
             allow_reset=True,
             anonymized_telemetry=False,
         )
         client = chromadb.PersistentClient(path=path, settings=settings)
-    except Exception:
-        client = chromadb.PersistentClient(path=path)
 
     _CLIENTS[path] = client
     return client
