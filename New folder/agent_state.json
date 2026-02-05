@@ -1,10 +1,16 @@
 {
     "agents": {
         "Samson": {
-            "location": "House [Samson]",
-            "action": "Rest and observe the field @ World: House [Samson]: Bed_Samson",
-            "interaction_object": "Bed_Samson",
-            "interaction_area": "House [Samson]"
+            "location": "River",
+            "action": "Rinse dirt from vegetables with water at the well. @ World: River: River Bank",
+            "interaction_object": "River Bank",
+            "interaction_area": "River"
+        },
+        "Jimmy": {
+            "location": "Garden",
+            "action": "Jimmy identifies specific plants and herbs deep in the woodlands. @ World: Garden: Land",
+            "interaction_object": "Land",
+            "interaction_area": "Garden"
         }
     },
     "objects": {
@@ -16,7 +22,10 @@
                 "state": "empty"
             },
             "Bed_Samson": {
-                "state": "occupied"
+                "state": "empty"
+            },
+            "Table_Samson": {
+                "state": "empty"
             }
         },
         "Garden": {
@@ -24,7 +33,7 @@
                 "state": "empty"
             },
             "Land": {
-                "state": "empty"
+                "state": "occupied"
             }
         },
         "Workshop": {
@@ -34,8 +43,17 @@
         },
         "River": {
             "River Bank": {
+                "state": "occupied"
+            }
+        },
+        "House [Jimmy]": {
+            "Bed_Jimmy": {
+                "state": "empty"
+            },
+            "Table_Jimmy": {
                 "state": "empty"
             }
         }
-    }
+    },
+    "time": "Day 0, 09:11"
 }

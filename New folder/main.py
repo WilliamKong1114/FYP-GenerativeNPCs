@@ -479,19 +479,19 @@ def summarize_conversation_and_store(user_id: str) -> Optional[str]:
         print(f"Failed to summarize conversation: {e}")
         return None
 
-if __name__ == "__main__":
-    while True:
-        try:
-            user_input = input("User: ")
-            if user_input.lower() in ["quit", "exit", "q"]:
-                print("Goodbye!")
-                summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
-                break
-            stream_graph_updates(user_input)
-        except KeyboardInterrupt:
-            print("\nGoodbye!")
-            summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
-            break
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            continue
+#if __name__ == "__main__":
+#    while True:
+#        try:
+#            user_input = input("User: ")
+#            if user_input.lower() in ["quit", "exit", "q"]:
+#                print("Goodbye!")
+    #            summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
+    #            break
+    #        stream_graph_updates(user_input)
+    #    except KeyboardInterrupt:
+    #        print("\nGoodbye!")
+    #        summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
+    #        break
+    #    except Exception as e:
+    #        print(f"Unexpected error: {e}")
+    #        continue

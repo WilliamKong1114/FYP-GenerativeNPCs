@@ -3,6 +3,7 @@ import uuid
 import datetime
 import json as _json
 import vertexai
+import re
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
@@ -57,6 +58,29 @@ def store_plan(plan: List[Dict[str, Any]], user_id: str = "default_user", parent
     conn.close()
     return ids
 
+def generate_emojis(actions: List[str]) -> List[str]:
+    try:
+        actions_formatted = "\n".join([f"{i+1}. {act}" for i, act in enumerate(actions)])
+        prompt = (
+            "You are an emoji translator. For each action in the numbered list below, "
+            "provide exactly two emojis that best represent it. Do not add or include any gender signs or symbols.\n"
+            "Return ONLY a JSON list of strings, where each string contains the two emojis. "
+            "Do not include markdown formatting or numbering in the output.\n\n"
+            f"Actions:\n{actions_formatted}\n\n"
+            "Output Example:\n"
+            '["🚶‍♂️🌲", "📖🕯️", "😴🌙"]'
+        )
+        response = llm.invoke(prompt)
+        content = getattr(response, "content", "").strip()
+        if content.startswith("```json"):
+            content = content.replace("```json", "").replace("```", "")
+        if content.startswith("```"):
+            content = content.replace("```", "")
+        return _json.loads(content)
+    except Exception as e:
+        print(f"Emoji generation failed: {e}")
+        return ["🤖⚡"] * len(actions)
+
 def plan_prompt(background: str, today: Optional[str] = None) -> str:
     now = today or datetime.date.today().isoformat()
     instruction = (
@@ -82,7 +106,7 @@ def plan_prompt(background: str, today: Optional[str] = None) -> str:
     )
     return instruction
 
-def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str) -> Dict[str, Any]:
+def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_generation: bool = False) -> Dict[str, Any]:
     system_msg = {"role": "system", "content": f"You are a helpful planning assistant that breaks down plans into finer-grained actions with time durations of {duration_prompt}."}
     user_msg = {"role": "user", "content": (
             f"Given the following plan description, break it down into finer-grained actions with provided time durations of {duration_prompt} for each sentence.\n"
@@ -102,12 +126,25 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str) -> Dict[st
     resp = llm.invoke([system_msg, user_msg])
     out = getattr(resp, "content", None) or str(resp)
     
+    emojis = []
+    if emoji_generation:
+        lines = (out or "").split('\n')
+        actions = []
+        pattern = re.compile(r'\d+\)\s+(\d+:\d+\s+[ap]m):\s+(.*)')
+        for line in lines:
+            match = pattern.match(line.strip())
+            if match:
+                actions.append(match.group(2))
+        
+        emojis = generate_emojis(actions) if actions else []
+
     plan_id = str(uuid.uuid4())
     user_id = parent_plan.get("user_id", "default_user")
     plan: Dict[str, Any] = {
         "plan_id": plan_id,
         "user_id": user_id,
         "description": out or "",
+        "emojis": emojis,
         "created_on": datetime.datetime.now().isoformat(),
         "modified_on": datetime.datetime.now().isoformat(),
         "parent_id": parent_plan.get("plan_id")
@@ -127,25 +164,24 @@ def init_plan(user_id: str, background: Optional[str], today: Optional[str] = No
         "plan_id": plan_id,
         "user_id": user_id,
         "description": out or "",
+        "emojis": [],
         "created_on": datetime.datetime.now().isoformat(),
         "modified_on": datetime.datetime.now().isoformat(),
     }
 
     store_plan([top_plan], user_id=user_id)
-    child_plan = decompose_plan(top_plan, duration_prompt="1 hour")   
-    child_plan_2 = decompose_plan(child_plan, duration_prompt="15 minutes")      
+    child_plan = decompose_plan(top_plan, duration_prompt="1 hour", emoji_generation=False)   
+    child_plan_2 = decompose_plan(child_plan, duration_prompt="15 minutes", emoji_generation=True)      
     return {"top_plan": top_plan, "child_plan": child_plan, "child_plan_2": child_plan_2}
 
 if __name__ == "__main__":
-    uid = "default_user"
+    uid = "Jimmy"
     now = datetime.datetime.now().replace(second=0, microsecond=0)
-    persona = ("Name: Ben (age: 19)\n"
-        "Innate traits: friendly, outgoing. "
-        "Ben is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge."
-        "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons."
-        "He enjoys helping others like growing fruit or vegetables, fishing, and woodworking. "
-        "He has a small workshop where he crafts simple furniture and tools. "
-        "Ben is also keen on learning new skills from travelers passing through the village.\n "
-        "Goals: Improve his woodworking skills to create more intricate furniture, expand his garden to include a wider variety of plants, and build stronger relationships within the village community, and busy to get ready for the coming winter.")
+    persona = ("Name: Jimmy (age: 54)\n"
+        "Innate traits: calm, dependable, observant."
+        "Jimmy is a 53‑year‑old villager who has spent his entire life in a modest medieval settlement nestled between rolling pasturelands and a slow‑moving river. Behind the village lie dense woodlands where he often walks to observe wildlife and gather smooth branches for crafting."
+        "He was born into a family known for their skill in weaving and dyeing textiles, and from an early age he learned how to work with fibers, mix natural pigments, and appreciate the rhythm of careful handiwork. Over the decades, Jimmy became admired for his steady presence, gentle manner, and practical advice during busy harvest seasons."
+        "He enjoys spinning wool, weaving sturdy cloth for villagers, and experimenting with natural dyes using flowers, bark, and roots gathered from the forest. His weaving hut—filled with spindles, dyed yarn bundles, and a well‑worn loom—is where he spends most afternoons working on new patterns."
+        "His normal daily routine includes checking on drying fabrics hung behind his home, tending a few herb beds used for dyes, taking calm walks along the woods to gather plants, and speaking with travelers to exchange stories about trade routes and new weaving techniques. In the evenings, he often sits by the communal fire, sharing small handmade gifts or teaching basic weaving skills to younger villagers.")
     init_plan(uid, background=persona, today="2026-02-13")
     print(f"Plan stored in {PLANS_DB} for user: {uid}")

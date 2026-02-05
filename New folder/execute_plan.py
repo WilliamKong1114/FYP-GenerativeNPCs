@@ -6,6 +6,7 @@ from planner import llm
 from unity_comm import UnityClient
 from World_Environment.environment_tree import EnvironmentTree
 from World_Environment.agent_state import AgentStateManager
+from World_Environment.simulation_clock import SimulationClock
 from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
 
 def generate_new_skill(action_desc, agent_state=None, relevant_skills=None, last_code=None, error=None):
@@ -20,9 +21,9 @@ def generate_new_skill(action_desc, agent_state=None, relevant_skills=None, last
     primitives = """
     Control Primitives:
     - Variable `unity` is a UnityClient instance.
-    - Variable `params` is a dictionary containing 'target_name'.
-    - Use `unity.move_to(target_name, description)` to move.
-    - Use `unity.interact(target_name, method_name)` to act. Method names are usually verbs like 'Till', 'Water', 'Harvest'.
+    - Variable `params` is a dictionary containing 'target_name' and 'agent_id'.
+    - Use `unity.move_to(target_name, description, agent_id=params.get('agent_id'))` to move.
+    - Use `unity.interact(target_name, method_name, agent_id=params.get('agent_id'))` to act. Method names are usually verbs like 'Till', 'Water', 'Harvest'.
     """
     
     skills_context = ""
@@ -56,7 +57,7 @@ def generate_new_skill(action_desc, agent_state=None, relevant_skills=None, last
     code = response.content.replace("```python", "").replace("```", "").strip()
     return code
 
-def resolve_and_execute_skill(action_desc, target_name, client):
+def resolve_and_execute_skill(action_desc, target_name, client, agent_id=None):
     print(f"--> Searching skill for: {action_desc}")
     
     res = query_skill(action_desc, n_results=5)
@@ -75,6 +76,8 @@ def resolve_and_execute_skill(action_desc, target_name, client):
             candidates.append({"id": sid, "description": doc, "metadata": meta, "distance": dist})
 
     params = {"target_name": target_name, "action_desc": action_desc}
+    if agent_id:
+        params["agent_id"] = agent_id
 
     for skill in candidates:
         name = skill['metadata'].get('name', 'Unknown')
@@ -167,24 +170,29 @@ def generate_emojis(actions):
         print(f"Batch emoji generation failed: {e}")
         return ["🤖⚡"] * len(actions)
 
-def get__plan():
+def get_plan(user_id: str = "Samson"):
     conn = sqlite3.connect("plans.db")
     cur = conn.cursor()
     try:
-        cur.execute("SELECT * FROM plans ORDER BY created_on DESC LIMIT 1")
+        cur.execute("SELECT plan_json, description FROM plans WHERE user_id = ? ORDER BY created_on DESC LIMIT 1", (user_id,))
         row = cur.fetchone()
     except Exception as e:
         print(f"Error reading DB: {e}")
-        return None
+        return None, []
     finally:
         conn.close()
 
     if not row:
-        return None
+        return None, []
 
-    plan_json_str = row[3]
-    plan_data = json.loads(plan_json_str)
-    return plan_data.get("description", "")
+    plan_json_str = row[0]
+    try:
+        plan_data = json.loads(plan_json_str)
+    except json.JSONDecodeError as e:
+        print(f"Error decoding plan_json for {user_id}: {e}")
+        return row[1] or "", []
+        
+    return plan_data.get("description", ""), plan_data.get("emojis", [])
 
 def parse_plan_steps(description):
     lines = description.split('\n')
@@ -202,65 +210,106 @@ def parse_plan_steps(description):
             steps.append((time_str, action_text))
     return steps
 
+def parse_time_to_minutes(time_str):
+    match = re.search(r'(\d+):(\d+)\s*([ap]m)', time_str.lower())
+    if not match: return 0
+    h, m, p = int(match.group(1)), int(match.group(2)), match.group(3)
+    if p == 'pm' and h < 12: h += 12
+    if p == 'am' and h == 12: h = 0
+    return h * 60 + m
+
 def execute_plan():
-    #print("Loading Environment Tree...")
+    agents_config = [
+        {
+            "id": "Samson",
+            "persona": ("Innate traits: friendly, outgoing."
+                "Samson is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge."
+                "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons."
+                "He enjoys helping others like growing fruit or vegetables, fishing, and woodworking. "
+                "He has a small workshop where he crafts simple furniture and tools. "
+                "Samson is also keen on learning new skills from travelers passing through the village.\n "
+                "Goals: Improve his woodworking skills to create more intricate furniture, expand his garden to include a wider variety of plants, and build stronger relationships within the village community, and busy to get ready for the coming winter.")
+        },
+        {
+            "id": "Jimmy",
+            "persona": ("Innate traits: calm, dependable, observant."
+            "Jimmy is a 53‑year‑old villager who has spent his entire life in a modest medieval settlement nestled between rolling pasturelands and a slow‑moving river. Behind the village lie dense woodlands where he often walks to gather herbs and fallen branches."
+            "He was raised in a family known for their skill in maintaining tools and tending livestock, and from a young age he learned patience, precision, and the value of steady work. Over decades, Edric became respected for his reliability and quiet wisdom."
+            "He enjoys repairing equipment for farmers, carving wooden utensils and small household items, and preparing simple herbal mixtures he learned from an elderly healer many years ago. His workshop—an aging shed filled with tools, scraps of wood, and half‑finished projects—is where he spends most afternoons."
+            "His normal daily routine includes checking on neighbors’ tools that need fixing, tending a small patch of vegetables behind his home, taking quiet walks in the woods to gather materials, and chatting with travelers to hear news of faraway lands. In the evenings, he often sits by the communal fire, sharing stories or offering advice to younger villagers.")
+        }
+    ]
+    
     tree = EnvironmentTree()
     tree.load()
     
-    #print("Connecting to Unity...")
     client = UnityClient()
     state_manager = AgentStateManager()
-    
-    description = get__plan()
-    if not description:
-        print("No plan found in database.")
-        return
+    clock = SimulationClock(time_scale=90.0) 
 
-    #print("Parsing Plan...")
-    steps = parse_plan_steps(description)
-    print(f"Found {len(steps)} steps.")
-    
-    print("Generating emojis for the plan...")
-    actions_list = [s[1] for s in steps]
-    emojis_list = generate_emojis(actions_list)
+    agent_executions = {
+        config["id"]: {
+            "persona": config["persona"],
+            "steps": [],
+            "emojis": [],
+            "current_step": 0,
+            "is_busy_until": 0
+        } for config in agents_config
+    }
 
-    for i, (time_str, action) in enumerate(steps):
-        print(f"\nTime: {time_str}")
-        print(f"Action: {action}")
-
-        emojis = emojis_list[i] if i < len(emojis_list) else "🤖❓"
-        print(f"--> Emojis: {emojis}")
-        #client.show_dialogue(emojis)
+    while True:
+        sim_days, cur_h, cur_m = clock.get_sim_time()
+        current_sim_total_minutes = cur_h * 60 + cur_m
         
-        path_nodes = tree.find_suitable_location(action)
-        target_name = None
-        full_action_desc = action
+        if clock.is_new_day():
+            print(f"\n--- New Simulation Day - {clock.get_time_string()} ---")
+            for agent_id, data in agent_executions.items():
+                description, emojis = get_plan(agent_id)
+                data["steps"] = parse_plan_steps(description) if description else []
+                data["emojis"] = emojis
+                data["current_step"] = 0
+                print(f"[{agent_id}] Loaded plan with {len(data['steps'])} steps and {len(data['emojis'])} emojis.")
 
-        if path_nodes:
-            target_node = path_nodes[-1]
-            target_name = tree.get_location(target_node)
-            #print(f"--> Identified Location: {target_node.name}  (Unity: {target_name})")
-            
-            path_str = ": ".join([n.name for n in path_nodes])
-            full_action_desc = f"{action} @ {path_str}"
-        else:
-            print("--> No specific location found in tree. Staying put or using default.")
-            client.show_dialogue(emojis)
-            
-        if target_name:
-            print(f"--> Sending Move Command to '{target_name}'...")
-            try:
-                client.move_to(target_name, emojis, action)
-                state_manager.update_agent("Samson", full_action_desc)
-                
-                duration = resolve_and_execute_skill(action, target_name, client)
-                time.sleep(duration)
-                
-            except Exception as e:
-                print(f"--> Error communicating with Unity at {time_str}: {e}")
-                time.sleep(3)
-                        
-    print("\nPlan Execution Complete.")
+        # Process each agent
+        for agent_id, data in agent_executions.items():
+            # Check if agent has steps left and is not busy
+            if data["current_step"] < len(data["steps"]) and time.time() >= data["is_busy_until"]:
+                time_str, action = data["steps"][data["current_step"]]
+                scheduled_minutes = parse_time_to_minutes(time_str)
+
+                # Is it time for this step?
+                if current_sim_total_minutes >= scheduled_minutes:
+                    print(f"\n[{clock.get_time_string()}] Agent {agent_id} Executing: {action}")
+                    emojis = data["emojis"][data["current_step"]] if data["current_step"] < len(data["emojis"]) else "🤖❓"
+                    
+                    path_nodes = tree.find_suitable_location(action)
+                    target_name = None
+                    full_action_desc = action
+
+                    if path_nodes:
+                        target_node = path_nodes[-1]
+                        target_name = tree.get_location(target_node)
+                        path_str = ": ".join([n.name for n in path_nodes])
+                        full_action_desc = f"{action} @ {path_str}"
+                    
+                    if target_name:
+                        try:
+                            client.move_to(target_name, emojis, action, agent_id=agent_id)
+                            state_manager.update_agent(agent_id, full_action_desc)
+                            
+                            duration = resolve_and_execute_skill(action, target_name, client, agent_id=agent_id)
+                            # Set busy time instead of sleeping here so other agents can proceed
+                            data["is_busy_until"] = time.time() + duration
+                            data["current_step"] += 1
+                        except Exception as e:
+                            print(f"--> [{agent_id}] Error: {e}")
+                    else:
+                        client.show_dialogue(emojis, agent_id=agent_id)
+                        data["current_step"] += 1
+
+        state_manager.set_time(clock.get_time_string())
+        time.sleep(1) # Frequency of checking the clock and agents status
+
     client.close()
 
 if __name__ == "__main__":

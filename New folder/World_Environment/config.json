@@ -3,7 +3,7 @@
   "type": "area",
   "children": [
     {
-      "name": "House [Samson]",
+      "name": "House_Samson",
       "type": "area",
       "affordances": ["Samson", "hygiene", "bathroom", "living", "tidy", "home"],
       "children": [
@@ -141,7 +141,7 @@
       ]
     },
     {
-      "name": "House [Jimmy]",
+      "name": "House_Jimmy",
       "type": "area",
       "affordances": ["Jimmy", "neighbor", "visit", "socialize", "friend", "chat", "talk"],
       "children": [

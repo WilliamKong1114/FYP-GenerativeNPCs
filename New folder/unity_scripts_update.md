@@ -32,7 +32,8 @@ public class MovementCommand
 public class UnityTcpListener : MonoBehaviour
 {
     public int port = 5005;
-    public UnityMovementController movementController;
+    // CHANGED: Reference the Dispatcher instead of the old Controller
+    public UnityMultiAgentDispatcher dispatcher;
 
     private TcpListener listener;
     private Thread listenerThread;
@@ -42,9 +43,10 @@ public class UnityTcpListener : MonoBehaviour
 
     void Start()
     {
-        if (movementController == null)
+        // CHANGED: Auto-find the dispatcher if not assigned
+        if (dispatcher == null)
         {
-            movementController = GetComponent<UnityMovementController>();
+            dispatcher = GetComponent<UnityMultiAgentDispatcher>();
         }
         StartListener();
     }
@@ -63,7 +65,11 @@ public class UnityTcpListener : MonoBehaviour
         }
         if (cmd != null)
         {
-            HandleCommand(cmd);
+            // CHANGED: Call the dispatcher
+            if (dispatcher != null)
+            {
+                dispatcher.HandleCommand(cmd);
+            }
         }
     }
 
@@ -185,6 +191,205 @@ public class UnityTcpListener : MonoBehaviour
                 Debug.Log($"Unknown action: {cmd.action}");
                 break;
         }
+    }
+}
+```
+
+## 2. UnityMultiAgentDispatcher.cs (New)
+
+Attach this to the NetworkManager object.
+
+```csharp
+using UnityEngine;
+
+public class UnityMultiAgentDispatcher : MonoBehaviour
+{
+    public void HandleCommand(MovementCommand cmd)
+    {
+        // 1. Validate Agent
+        if (string.IsNullOrEmpty(cmd.agent))
+        {
+            Debug.LogWarning("Command received without Agent ID");
+            return;
+        }
+
+        // 2. Find the Agent GameObject by Name (e.g., "Samson")
+        GameObject agentObj = GameObject.Find(cmd.agent);
+        if (agentObj == null)
+        {
+            Debug.LogError($"Agent '{cmd.agent}' not found in scene!");
+            return;
+        }
+
+        // 3. Get the SimAgent component
+        SimAgent msgAgent = agentObj.GetComponent<SimAgent>();
+        if (msgAgent == null)
+        {
+            Debug.LogError($"GameObject '{cmd.agent}' does not have a SimAgent component!");
+            return;
+        }
+
+        // 4. Dispatch Action
+        Debug.Log($"Dispatching {cmd.action} to {cmd.agent}");
+
+        switch (cmd.action.ToLower())
+        {
+            case "move_to":
+                msgAgent.MoveTo(cmd.target);
+                if (!string.IsNullOrEmpty(cmd.content))
+                {
+                    msgAgent.showDialogue(cmd.content);
+                }
+                break;
+
+            case "interact":
+                msgAgent.Interact(cmd.method, cmd.target, cmd.color);
+                break;
+
+            case "show_dialogue":
+                msgAgent.showDialogue(cmd.content);
+                break;
+
+            case "stop":
+                msgAgent.StopMotion();
+                break;
+        }
+    }
+}
+```
+
+## 3. SimAgent.cs (Replaces UnityMovementController for Agents)
+
+Attach this to each Agent GameObject (Samson, Jimmy).
+
+```csharp
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using TMPro;
+
+public class SimAgent : MonoBehaviour
+{
+    public float moveSpeed = 2.0f;
+    private Pathfinding pathfinder;
+    public GameObject dialoguePanel; // Assign world-space UI Canvas per agent
+    public TMP_Text emojiText;
+
+    void Start()
+    {
+        // Auto-find pathfinder (Grid)
+        pathfinder = FindObjectOfType<Pathfinding>();
+        if (pathfinder == null) Debug.LogError("No Pathfinding script found in scene!");
+
+        if (dialoguePanel != null) dialoguePanel.SetActive(false);
+    }
+
+    public void MoveTo(string targetName)
+    {
+        GameObject targetObj = GameObject.Find(targetName);
+        if (targetObj != null)
+        {
+            // Look for Interaction Point (IP) child or use center
+            Transform interactionPoint = targetObj.transform.Find("IP");
+            Vector3 destination = (interactionPoint != null) ? interactionPoint.position : targetObj.transform.position;
+
+            List<Vector3> path = pathfinder.FindPath(transform.position, destination);
+
+            if (path != null && path.Count > 0)
+            {
+                StopAllCoroutines(); // Reset current motion/dialogue timers
+                StartCoroutine(FollowPath(path));
+            }
+            else
+            {
+                Debug.LogWarning($"[SimAgent {name}] No path to {targetName}");
+            }
+        }
+        else
+        {
+            Debug.LogError($"[SimAgent {name}] Target '{targetName}' not found!");
+        }
+    }
+
+    public void showDialogue(string text)
+    {
+        if (dialoguePanel != null && emojiText != null)
+        {
+            emojiText.text = text;
+            dialoguePanel.SetActive(true);
+
+            // We use a separate coroutine so it doesn't get killed instantly if we move
+            // But since MoveTo uses StopAllCoroutines, moving will hide dialogue.
+            // Ideally, track coroutines separately. For now, matching original structure:
+            StartCoroutine(HideDialogueCoroutine());
+        }
+    }
+
+    private IEnumerator HideDialogueCoroutine()
+    {
+        yield return new WaitForSeconds(4.0f);
+        if (dialoguePanel != null) dialoguePanel.SetActive(false);
+    }
+
+    IEnumerator FollowPath(List<Vector3> path)
+    {
+        int targetIndex = 0;
+        while (targetIndex < path.Count)
+        {
+            Vector3 targetPos = new Vector3(path[targetIndex].x, path[targetIndex].y, transform.position.z);
+
+            // Move
+            transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
+
+            // Rotate
+            Vector3 dir = targetPos - transform.position;
+            if (dir.sqrMagnitude > 0.001f)
+            {
+                float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+                transform.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
+            }
+
+            if (Vector3.Distance(transform.position, targetPos) < 0.05f)
+            {
+                targetIndex++;
+            }
+            yield return null;
+        }
+    }
+
+    public void Interact(string method, string targetName, string color = null)
+    {
+        if (string.IsNullOrEmpty(targetName))
+        {
+            Debug.LogWarning($"[SimAgent {name}] Interaction command missing target.");
+            return;
+        }
+
+        Debug.Log($"[{name}] Interacting with {targetName} via method: {method}");
+
+        GameObject targetObj = GameObject.Find(targetName);
+        if (targetObj != null)
+        {
+            var interactable = targetObj.GetComponent<InteractableObject>();
+            if (interactable != null)
+            {
+                interactable.Interact(method, color);
+            }
+            else
+            {
+                Debug.LogWarning($"Object {targetName} has no InteractableObject script. Trying SendMessage.");
+                targetObj.SendMessage(method, SendMessageOptions.DontRequireReceiver);
+            }
+        }
+        else
+        {
+            Debug.LogError($"Target object not found: {targetName}");
+        }
+    }
+
+    public void StopMotion()
+    {
+        StopAllCoroutines();
     }
 }
 ```

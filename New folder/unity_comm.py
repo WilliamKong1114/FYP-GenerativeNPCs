@@ -2,11 +2,12 @@ import socket
 import json
 
 class UnityClient:
-    def __init__(self, host: str = "127.0.0.1", port: int = 5005, timeout: float = 2.0):
+    def __init__(self, host: str = "127.0.0.1", port: int = 5005, timeout: float = 2.0, default_agent_id: str = None):
         self.host = host
         self.port = port
         self.timeout = timeout
         self.sock = None
+        self.default_agent_id = default_agent_id
 
     def connect(self):
         if self.sock:
@@ -50,27 +51,41 @@ class UnityClient:
     def get_state(self):
         return self.send_command({"action": "get_state"}, wait_for_response=True)
 
-    def move_to(self, target_name: str, dialogue_content: str = None, description: str = None):
-        cmd = {"action": "move_to", "target": target_name, "description": description}
+    def move_to(self, target_name: str, dialogue_content: str = None, description: str = None, agent_id: str = None):
+        effective_agent_id = agent_id or self.default_agent_id
+        cmd = {"action": "move_to", "target": target_name}
+        if effective_agent_id:
+            cmd["agent"] = effective_agent_id
         if dialogue_content:
             cmd["content"] = dialogue_content
         if description:
             cmd["description"] = description
         self.send_command(cmd)
 
-    def show_dialogue(self, emojis: str):
-        self.send_command({"action": "show_dialogue", "content": emojis})
+    def show_dialogue(self, emojis: str, agent_id: str = None):
+        effective_agent_id = agent_id or self.default_agent_id
+        cmd = {"action": "show_dialogue", "content": emojis}
+        if effective_agent_id:
+            cmd["agent"] = effective_agent_id
+        self.send_command(cmd)
 
-    def interact(self, target_name: str, method: str, parameters: dict = None):
+    def interact(self, target_name: str, method: str, parameters: dict = None, agent_id: str = None):
+        effective_agent_id = agent_id or self.default_agent_id
         cmd = {
             "action": "interact",
             "target": target_name,
             "method": method
         }
+        if effective_agent_id:
+            cmd["agent"] = effective_agent_id
         if parameters:
             cmd.update(parameters)
             
         self.send_command(cmd, wait_for_response=True)
 
-    def stop(self):
-        self.send_command({"action": "stop"})
+    def stop(self, agent_id: str = None):
+        effective_agent_id = agent_id or self.default_agent_id
+        cmd = {"action": "stop"}
+        if effective_agent_id:
+            cmd["agent"] = effective_agent_id
+        self.send_command(cmd)

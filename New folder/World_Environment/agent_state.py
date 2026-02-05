@@ -10,7 +10,11 @@ class AgentStateManager:
         if os.path.exists(self.state_file):
             with open(self.state_file, 'r') as f:
                 return json.load(f)
-        return {"agents": {}, "objects": {}}
+        return {"agents": {}, "objects": {}, "time": "Day 0, 06:00"}
+
+    def set_time(self, time_string):
+        self.state["time"] = time_string
+        self.save_state()
 
     def save_state(self):
         with open(self.state_file, 'w') as f:
