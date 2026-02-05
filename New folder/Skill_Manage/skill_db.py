@@ -1,6 +1,6 @@
 import json
 from typing import List, Dict, Any
-from Skill_Manage.chroma_skill_lib import add_skill as add_skill_lib
+from Skill_Manage.chroma_skill_lib import add_skill as add_skill_lib, delete_skill as delete_skill_lib
 from chroma_client import get_client
 
 def list_skills(chroma_path: str = "./chroma_db") -> List[Dict[str, Any]]:
@@ -40,8 +40,13 @@ def _cli():
     p = argparse.ArgumentParser(description="Inspect Chroma skills collection")
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("list-skills")
+    
     s = sub.add_parser("show-skill")
     s.add_argument("id")
+    
+    d = sub.add_parser("delete-skill")
+    d.add_argument("id")
+
     args = p.parse_args()
 
     if args.cmd == "list-skills":
@@ -53,55 +58,11 @@ def _cli():
             print(json.dumps(it, indent=2))
         except KeyError as e:
             print(str(e))
+    elif args.cmd == "delete-skill":
+        delete_skill_lib(args.id)
+        print(f"Deleted skill {args.id}")
     else:
         p.print_help()
 
 if __name__ == "__main__":
     _cli()
-
-def main():
-    while True:
-        try:
-            choice = input(
-                "\nSkill Manager\n"
-                "1) List skills\n"
-                "2) Add skill\n"
-                "3) Delete skill\n"
-                "Choose (or 'exit' to quit): "
-            )
-
-            if not choice:
-                continue
-            if choice.lower() == "exit":
-                break
-
-            if choice == "1":
-                for it in list_skills():
-                    print(f"- {it['id']}: {it.get('doc')}")
-
-            elif choice == "2":
-                sid = input("Skill id to delete: ").strip()
-                if not sid:
-                    print("id required")
-                    continue
-                client = get_client()
-                try:
-                    col = client.get_collection("skills")
-                except Exception:
-                    col = client.get_or_create_collection("skills")
-                try:
-                    col.delete(ids=[sid])
-                    print("Deleted:", sid)
-                except Exception as e:
-                    print("Delete failed:", e)
-            else:
-                print("Unknown option")
-        except KeyboardInterrupt:
-            print("\nExiting.")
-            break
-        except Exception as e:
-            print("Error:", e)
-            continue
-
-if __name__ == "__main__": 
-    main()

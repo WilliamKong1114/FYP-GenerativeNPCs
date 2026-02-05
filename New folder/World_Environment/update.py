@@ -20,7 +20,10 @@ def load_config():
     with open(CONFIG_FILE, 'r') as f:
         return json.load(f)
 
-def process_node(tree, config_node, parent_node=None):
+def process_node(tree, config_node, parent_node=None, valid_uuids=None):
+    if valid_uuids is None:
+        valid_uuids = set()
+
     name = config_node.get("name")
     node_type = config_node.get("type", "object")
     affordances = config_node.get("affordances", [])
@@ -61,9 +64,12 @@ def process_node(tree, config_node, parent_node=None):
             state=state
         )
 
+    if current_node:
+        valid_uuids.add(current_node.uuid)
+
     config_children = config_node.get("children", [])
     for child_config in config_children:
-        process_node(tree, child_config, current_node)
+        process_node(tree, child_config, current_node, valid_uuids)
 
 def update_tree():
     config = load_config()
@@ -74,7 +80,22 @@ def update_tree():
     tree.load()
     
     print("Updating Environment Tree from JSON...")
-    process_node(tree, config)
+    
+    valid_uuids = set()
+    process_node(tree, config, valid_uuids=valid_uuids)
+    
+    # Identify and remove nodes that are no longer in the config
+    all_uuids = set(tree.nodes.keys())
+    to_remove = all_uuids - valid_uuids
+    
+    if to_remove:
+        print(f"Removing {len(to_remove)} obsolete nodes...")
+        for uid in to_remove:
+            node = tree.nodes.get(uid)
+            name = node.name if node else "Unknown"
+            print(f" - Removing: {name} ({uid})")
+            tree.delete_node(uid)
+
     print("Environment Tree Updated.")
 
 if __name__ == "__main__":

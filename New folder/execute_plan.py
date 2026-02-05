@@ -2,10 +2,141 @@ import sqlite3
 import json
 import time
 import re
-from World_Environment.environment_tree import EnvironmentTree
-from unity_comm import UnityClient
-from World_Environment.agent_state import AgentStateManager
 from planner import llm
+from unity_comm import UnityClient
+from World_Environment.environment_tree import EnvironmentTree
+from World_Environment.agent_state import AgentStateManager
+from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
+
+def generate_new_skill(action_desc, agent_state=None, relevant_skills=None, last_code=None, error=None):
+    guidelines = """
+    Guidelines:
+    1. Your function will be reused for building more complex functions. Therefore, you should make it generic and reusable.
+    2. Write VALID Python code. Do NOT wrap in markdown blocks. Do NOT provide explanations.
+    3. The code should extract target from params: `target = params.get('target_name')`
+    4. The code MUST end by setting variable `result` to an estimated duration (float in seconds) for the action. E.g., `result = 4.0`.
+    """
+    
+    primitives = """
+    Control Primitives:
+    - Variable `unity` is a UnityClient instance.
+    - Variable `params` is a dictionary containing 'target_name'.
+    - Use `unity.move_to(target_name, description)` to move.
+    - Use `unity.interact(target_name, method_name)` to act. Method names are usually verbs like 'Till', 'Water', 'Harvest'.
+    """
+    
+    skills_context = ""
+    if relevant_skills:
+        skills_context = "Relevant Skills from Library:\n"
+        for s in relevant_skills:
+            desc = s.get('doc') or s.get('description') or "No description"
+            code = s.get('metadata', {}).get('code') or "# No code"
+            skills_context += f"--- Skill: {desc} ---\n{code}\n"
+            
+    feedback_section = ""
+    if last_code:
+        feedback_section = f"""
+        Previous Code Attempt:{last_code}
+        Execution Error / Feedback:{error}
+        Critique:
+        The previous code failed. Analyze the error and generate a fixed version.
+        """
+        
+    state_section = f"Current Agent State: {agent_state}" if agent_state else ""
+    prompt = f"""
+    You are an AI generating Python code for a game agent skill. Task: {action_desc}
+    {guidelines}
+    {primitives}
+    {skills_context}
+    {state_section}
+    {feedback_section}
+    Generate the Python code now.
+    """
+    response = llm.invoke(prompt)
+    code = response.content.replace("```python", "").replace("```", "").strip()
+    return code
+
+def resolve_and_execute_skill(action_desc, target_name, client):
+    print(f"--> Searching skill for: {action_desc}")
+    
+    res = query_skill(action_desc, n_results=5)
+    candidates = []
+    if res and res.get('ids') and len(res['ids']) > 0:
+        ids_list = res['ids'][0]
+        dists_list = res.get('distances', [[]])[0] if res.get('distances') else []
+
+        for i, sid in enumerate(ids_list):
+            dist = dists_list[i] if i < len(dists_list) else 0.0            
+            if dist > 1.0:
+                continue
+
+            doc = res['documents'][0][i] if res['documents'] else None
+            meta = res['metadatas'][0][i] if res['metadatas'] else None
+            candidates.append({"id": sid, "description": doc, "metadata": meta, "distance": dist})
+
+    params = {"target_name": target_name, "action_desc": action_desc}
+
+    for skill in candidates:
+        name = skill['metadata'].get('name', 'Unknown')
+        print(f"--> Candidate: {name} (Dist: {skill.get('distance', 'N/A')})")
+        try:
+            return float(execute_skill(skill, params=params, unity_client=client))
+        except Exception as e:
+            print(f"--> Skill '{name}' execution failed: {e}")
+            continue
+
+    print(f"--> No suitable skill found or executed for: {action_desc}")
+
+    # --- Generation Logic Commented Out ---
+    # print(f"--> Generating new skill for: {action_desc}")
+    # 
+    # state_manager = AgentStateManager()
+    # agent_info = state_manager.state.get("agents", {}).get("Samson", "Unknown")
+    # 
+    # relevant_skills = candidates[:3] # Use the ones we found
+    #
+    # max_retries = 2
+    # current_code = None
+    # last_error = None
+    # 
+    # for attempt in range(max_retries + 1):
+    #     try:
+    #         current_code = generate_new_skill(
+    #             action_desc, 
+    #             agent_state=agent_info, 
+    #             relevant_skills=relevant_skills, 
+    #             last_code=current_code, 
+    #             error=last_error
+    #         )
+    #         
+    #         print(f"--> Generated Code (Attempt {attempt+1}):\n{current_code}")
+    #         
+    #         temp_skill = {"metadata": {"code": current_code}}
+    #         duration = execute_skill(temp_skill, params=params, unity_client=client)
+    #         
+    #         if not isinstance(duration, (int, float)):
+    #             duration = 3.0
+    #         
+    #         print(f"--> Skill Executed Successfully. Duration: {duration}s")
+    #         
+    #         skill_id = "gen_" + str(hash(action_desc))
+    #         print("--> Learning new skill...")
+    #         add_skill(
+    #             name=skill_id,
+    #             description=action_desc,
+    #             code=current_code,
+    #             meta={"type": "generated", "base_duration": duration}
+    #         )
+    #         print("--> Skill Saved to Memory.")
+    #         
+    #         return float(duration)
+    #         
+    #     except Exception as e:
+    #         print(f"--> Execution Error in Attempt {attempt+1}: {e}")
+    #         last_error = str(e)
+            
+    # print("--> All attempts failed.")
+    return 3.0
 
 def generate_emojis(actions):
     try:
@@ -121,11 +252,14 @@ def execute_plan():
             try:
                 client.move_to(target_name, emojis, action)
                 state_manager.update_agent("Samson", full_action_desc)
+                
+                duration = resolve_and_execute_skill(action, target_name, client)
+                time.sleep(duration)
+                
             except Exception as e:
                 print(f"--> Error communicating with Unity at {time_str}: {e}")
+                time.sleep(3)
                         
-        time.sleep(3) 
-
     print("\nPlan Execution Complete.")
     client.close()
 

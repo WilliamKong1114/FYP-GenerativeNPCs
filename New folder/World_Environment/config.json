@@ -28,15 +28,83 @@
       "children": [
         {
           "name": "Land",
-          "type": "object",
-          "state": "empty",
-          "affordances": ["Garden", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-        },        
-        {
-          "name": "Farm",
-          "type": "object",
-          "state": "empty",
-          "affordances": ["Farm", "amimals", "feed", "milk", "care", "outside", "nature"]
+          "type": "area",
+          "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"],
+          "children": [
+            {
+              "name": "Dirt (1)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (2)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (3)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (4)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (5)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (6)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (7)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (8)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (9)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (10)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (11)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            },
+            {
+              "name": "Dirt (12)",
+              "type": "object",
+              "state": "empty",
+              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
+            }
+
+          ]
         }
       ]
     },

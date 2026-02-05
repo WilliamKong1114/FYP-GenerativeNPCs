@@ -25,6 +25,8 @@ public class MovementCommand
     public string target;
     //public string description;
     public string content;
+    public string method; // key for interaction
+    public string color; // Parameter directly in the command
 }
 
 public class UnityTcpListener : MonoBehaviour
@@ -126,14 +128,46 @@ public class UnityTcpListener : MonoBehaviour
         }
     }
 
+    void HandleInteraction(MovementCommand cmd)
+    {
+        if (string.IsNullOrEmpty(cmd.target))
+        {
+            Debug.LogWarning("Interaction command missing target.");
+            return;
+        }
+
+        GameObject targetObj = GameObject.Find(cmd.target);
+        if (targetObj != null)
+        {
+            var interactable = targetObj.GetComponent<InteractableObject>();
+            if (interactable != null)
+            {
+                interactable.Interact(cmd.method, cmd.color);
+            }
+            else
+            {
+                // Fallback or specific component check
+                Debug.LogWarning($"Object {cmd.target} has no InteractableObject script. Trying SendMessage.");
+                targetObj.SendMessage(cmd.method, SendMessageOptions.DontRequireReceiver);
+            }
+        }
+        else
+        {
+            Debug.LogError($"Target object not found: {cmd.target}");
+        }
+    }
+
     void HandleCommand(MovementCommand cmd)
     {
         if (cmd == null || string.IsNullOrEmpty(cmd.action)) return;
 
-        Debug.Log($"Plan: {cmd.content} Target: {cmd.target}");
+        Debug.Log($"Plan: {cmd.content} Target: {cmd.target} Action: {cmd.action}");
 
         switch (cmd.action.ToLower())
         {
+            case "interact":
+                HandleInteraction(cmd);
+                break;
             case "show_dialogue":
                 movementController.showDialogue(cmd.content);
                 break;
@@ -291,6 +325,80 @@ public class UnityMovementController : MonoBehaviour
     {
         yield return StartCoroutine(routine);
         currentMotion = null;
+    }
+}
+```
+
+## InteractableObject.cs
+
+```csharp
+using UnityEngine;
+
+public class InteractableObject : MonoBehaviour
+{
+    public void Interact(string method, string color = null)
+    {
+        Debug.Log($"[InteractableObject] {name} received interaction: {method}");
+
+        switch (method.ToLower())
+        {
+            case "till":
+                Till();
+                break;
+            case "water":
+                Water();
+                break;
+            case "harvest":
+                Harvest();
+                break;
+            case "change_color":
+                string colorName = !string.IsNullOrEmpty(color) ? color : "white";
+                ChangeColor(colorName);
+                break;
+            default:
+                Debug.LogWarning($"Unknown method '{method}' for {name}");
+                break;
+        }
+    }
+
+    private void ChangeColor(string colorName)
+    {
+        Color newColor = Color.white;
+        if (colorName.ToLower() == "brown")
+        {
+            newColor = new Color(0.36f, 0.25f, 0.20f); // Standard dirt brown
+        }
+        else if (!ColorUtility.TryParseHtmlString(colorName, out newColor))
+        {
+            Debug.LogWarning($"Could not parse color: {colorName}, defaulting to white.");
+        }
+
+        var renderer = GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            renderer.material.color = newColor;
+            Debug.Log($"{name} changed color to {colorName}");
+        }
+    }
+
+    private void Till()
+    {
+        Debug.Log($"{name} is being tilled! (Visuals update here)");
+        // e.g., Change material color to indicate tilled soil
+        GetComponent<Renderer>().material.color = new Color(0.36f, 0.25f, 0.20f);
+    }
+
+    private void Water()
+    {
+        Debug.Log($"{name} is being watered! (Visuals update here)");
+        // e.g., Change material color to darker dirt
+        GetComponent<Renderer>().material.color = Color.blue;
+    }
+
+    private void Harvest()
+    {
+        Debug.Log($"{name} harvested!");
+        Destroy(gameObject);
     }
 }
 ```

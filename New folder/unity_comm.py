@@ -61,5 +61,16 @@ class UnityClient:
     def show_dialogue(self, emojis: str):
         self.send_command({"action": "show_dialogue", "content": emojis})
 
+    def interact(self, target_name: str, method: str, parameters: dict = None):
+        cmd = {
+            "action": "interact",
+            "target": target_name,
+            "method": method
+        }
+        if parameters:
+            cmd.update(parameters)
+            
+        self.send_command(cmd, wait_for_response=True)
+
     def stop(self):
         self.send_command({"action": "stop"})

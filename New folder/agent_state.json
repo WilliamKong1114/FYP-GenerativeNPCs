@@ -1,10 +1,10 @@
 {
     "agents": {
         "Samson": {
-            "location": "Table_Samson",
-            "action": "eat breakfast at the dining table @ Table_Samson",
-            "interaction_object": "unknown",
-            "interaction_area": "unknown"
+            "location": "House [Samson]",
+            "action": "Rest and observe the field @ World: House [Samson]: Bed_Samson",
+            "interaction_object": "Bed_Samson",
+            "interaction_area": "House [Samson]"
         }
     },
     "objects": {
@@ -14,6 +14,9 @@
             },
             "Table": {
                 "state": "empty"
+            },
+            "Bed_Samson": {
+                "state": "occupied"
             }
         },
         "Garden": {

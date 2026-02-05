@@ -88,7 +88,7 @@ class EnvironmentTree:
             self.root = None
 
     def save_node(self, node: EnvironmentNode):
-        conn = self._get_conn()
+        conn = self.get_conn()
         aff_text = json.dumps(node.affordances)
         conn.execute("""
             INSERT OR REPLACE INTO environment_tree (uuid, name, type, parent_uuid, affordances, game_object_name, state)
@@ -96,8 +96,17 @@ class EnvironmentTree:
         """, (node.uuid, node.name, node.node_type, node.parent.uuid if node.parent else None, aff_text, node.game_object_name, node.state))
         conn.commit()
         conn.close()
+
+    def delete_node(self, uuid: str):
+        if uuid in self.nodes:
+            del self.nodes[uuid]
         
-    def add_node(self, name: str, node_type: str, parent: Optional[EnvironmentNode] = None, 
+        conn = self.get_conn()
+        conn.execute("DELETE FROM environment_tree WHERE uuid = ?", (uuid,))
+        conn.commit()
+        conn.close()
+        
+    def add_node(self, name: str, node_type: str, parent: Optional[EnvironmentNode] = None,  
                  affordances: List[str] = None, game_object_name: str = None, state: str = "empty") -> EnvironmentNode:
         node = EnvironmentNode(name, node_type, parent, affordances=affordances, game_object_name=game_object_name, state=state)
         if parent:
