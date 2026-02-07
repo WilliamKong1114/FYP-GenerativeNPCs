@@ -1,7 +1,9 @@
 import uuid
 import sqlite3
 import time
+import json
 from pathlib import Path
+from datetime import datetime
 
 ID_FILE = Path.home() / ".agent_temp_user_id"
 DB_FILE = Path("agent_memory.db")
@@ -16,52 +18,73 @@ def get_or_create_user_id(id_file_path: Path = ID_FILE) -> str:
 def init_db(path: str | Path = DB_FILE):
     conn = sqlite3.connect(str(path), isolation_level=None)
     c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS messages(
-                 user_id TEXT,
-                 role TEXT,
-                 content TEXT,
-                 ts INTEGER
-                 )""")
+    # Summaries now accumulative (no primary key on user_id)
     c.execute("""CREATE TABLE IF NOT EXISTS summaries(
-                 user_id TEXT PRIMARY KEY,
+                 id TEXT PRIMARY KEY,
+                 user_id TEXT,
                  summary TEXT,
-                 updated_ts INTEGER
+                 log_id TEXT,
+                 created_ts INTEGER
+                 )""")
+    # Ensure log_id column exists if table was created previously
+    try:
+        c.execute("ALTER TABLE summaries ADD COLUMN log_id TEXT")
+    except sqlite3.OperationalError:
+        pass # Column already exists
+    
+    # Conversation logs updated structure
+    c.execute("""CREATE TABLE IF NOT EXISTS conversation_logs(
+                 id TEXT PRIMARY KEY,
+                 participants TEXT,
+                 log_string TEXT,
+                 place TEXT,
+                 createdOn TEXT,
+                 ts INTEGER
                  )""")
     return conn
 
-def add_message(conn, user_id: str, role: str, content: str):
+def add_conversation_log(conn, participants: list, log_string: str, place: str):
+    log_id = str(uuid.uuid4())
+    participants_json = json.dumps(participants)
+    created_on = datetime.now().isoformat()
     conn.execute(
-        "INSERT INTO messages(user_id, role, content, ts) VALUES (?,?,?,?)",
-        (user_id, role, content, int(time.time())),
+        "INSERT INTO conversation_logs(id, participants, log_string, place, createdOn, ts) VALUES (?,?,?,?,?,?)",
+        (log_id, participants_json, log_string, place, created_on, int(time.time())),
     )
+    return log_id
 
-def get_recent_messages(conn, user_id: str, limit: int = 50):
+def get_recent_conversation_logs(conn, user_id: str, limit: int = 5):
+    # Retrieve logs where user_id is in the participants JSON string
+    # Using simple LIKE for JSON array check (not perfect but minimal dependency)
+    like_pattern = f'%"{user_id}"%'
     cur = conn.execute(
-        "SELECT role, content, ts FROM messages WHERE user_id=? ORDER BY ts DESC LIMIT ?",
-        (user_id, limit),
+        "SELECT participants, log_string, place, createdOn FROM conversation_logs WHERE participants LIKE ? ORDER BY ts DESC LIMIT ?",
+        (like_pattern, limit),
     )
     return cur.fetchall()
 
 def get_summary(conn, user_id: str):
-    row = conn.execute("SELECT summary FROM summaries WHERE user_id=?", (user_id,)).fetchone()
+    # Get the latest summary
+    row = conn.execute(
+        "SELECT summary FROM summaries WHERE user_id=? ORDER BY created_ts DESC LIMIT 1", 
+        (user_id,)
+    ).fetchone()
     return row[0] if row else None
 
-def save_summary(conn, user_id: str, summary: str):
+def save_summary(conn, user_id: str, summary: str, log_id: str = None):
+    summary_id = str(uuid.uuid4())
     ts = int(time.time())
     conn.execute(
-        "INSERT INTO summaries(user_id, summary, updated_ts) VALUES (?,?,?)\n                 ON CONFLICT(user_id) DO UPDATE SET summary=excluded.summary, updated_ts=excluded.updated_ts",
-        (user_id, summary, ts),
+        "INSERT INTO summaries(id, user_id, summary, log_id, created_ts) VALUES (?,?,?,?,?)",
+        (summary_id, user_id, summary, log_id, ts),
     )
 
-def recap(conn, user_id: str, recent_limit: int = 50) -> str:
+def recap(conn, user_id: str, recent_limit: int = 5) -> str:
     summary = get_summary(conn, user_id)
     if summary:
         return summary
-    msgs = get_recent_messages(conn, user_id, recent_limit)
-    if not msgs:
+    logs = get_recent_conversation_logs(conn, user_id, 1)
+    if not logs:
         return "No conversation history found."
-    # simple heuristic recap: join last few user messages
-    lines = []
-    for role, content, ts in reversed(msgs):
-        lines.append(f"[{role}] {content}")
-    return "\n".join(lines)
+    # Return the most recent conversation log
+    return logs[0][1] # log_string

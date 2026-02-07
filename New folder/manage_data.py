@@ -7,8 +7,40 @@ import datetime
 import time
 import os
 from typing import List, Dict, Any, Tuple, Optional
-from agent_memory import get_or_create_user_id, init_db, add_message, recap, ID_FILE
+from agent_memory import (
+    get_or_create_user_id, 
+    init_db, 
+    save_summary, 
+    get_summary, 
+    recap, 
+    ID_FILE,
+    add_conversation_log,
+    get_recent_conversation_logs
+)
 from chroma_client import get_client
+
+def save_conversation_log(participants: List[str], log_string: str, place: str):
+    """Save the full conversation log string to SQL"""
+    conn = init_db()
+    log_id = add_conversation_log(conn, participants, log_string, place)
+    return log_id
+
+def get_recent_logs(user_id: str, limit: int = 5):
+    """Retrieve recent logs from SQL"""
+    conn = init_db()
+    return get_recent_conversation_logs(conn, user_id, limit)
+
+def save_user_summary(user_id: str, summary: str, log_id: str = None):
+    """Save summary to sqlite summaries table"""
+    conn = init_db()
+    save_summary(conn, user_id, summary, log_id)
+
+def get_user_summary(user_id: str) -> Optional[str]:
+    """Retrieve summary from sqlite summaries table"""
+    conn = init_db()
+    return get_summary(conn, user_id)
+
+# add_user_message and get_recent_user_messages removed per requirements
 
 def add_user_info(user_id: str, info: str, path: str = "./chroma_db") -> str:
     """Add a new user"""
@@ -34,7 +66,6 @@ def add_conversation_records(records: List[Dict[str, Any]], user_id: str = "defa
     """Add conversation records for a user"""
     client = get_client(path)
     col = client.get_or_create_collection("conversations")
-    # If there are no records, do not call ChromaDB.add (it requires non-empty lists)
     if not records:
         return []
 
@@ -50,38 +81,50 @@ def add_conversation_line(user_id: str, role: str, text: str, path: str = "./chr
     ids = add_conversation_records([rec], user_id=user_id, path=path)
     return ids[0] if ids else None
 
-def list_conversations(user_id: str, path: str = "./chroma_db") -> List[Dict[str, Any]]:
-    """Return conversation records for a user as parsed JSON objects."""
+def list_conversations(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Return conversation records for a user from the sqlite conversation_logs table."""
+    # Since we removed individual message granularity, we just pull the last log string for context
+    logs = get_recent_logs(user_id, 1) # get just the latest one
+    if not logs:
+        return []
+        
+    # Log tuple is: participants, log_string, place, createdOn. 
+    # Index 1 is log_string format: Speaker: "text"; Speaker: "text"
+    raw_log = logs[0][1]
+    
+    # Parse back into list of dicts for compatibility
+    results = []
+    if raw_log:
+        turns = raw_log.split("; ")
+        for turn in turns:
+            if ": " in turn:
+                speaker, text = turn.split(": ", 1)
+                text = text.strip('"')
+                results.append({"role": speaker, "text": text})
+    return results
+
+def list_conversations_chroma(user_id: str, path: str = "./chroma_db") -> List[Dict[str, Any]]:
+    """Return conversation records for a user as parsed JSON objects (from ChromaDB)."""
     client = get_client(path)
     try:
         col = client.get_collection("conversations")
     except Exception:
-        col = client.get_or_create_collection("conversations")
+        # If collection doesn't exist, return empty
+        return []
 
     try:
         data = col.get(where={"user_id": user_id})
-    except Exception:
-        # Fallback: get all and filter
-        data = col.get()
-
-    docs = data.get("documents", []) or []
-    results: List[Dict[str, Any]] = []
-    for d in docs:
-        try:
-            obj = json.loads(d) if isinstance(d, str) else d
-        except Exception:
-            # if document is plain text, try to parse basic role prefix
-            obj = {"role": "unknown", "text": str(d), "ts": None}
-        # ensure user_id present from metadata is consistent
-        results.append(obj)
-
-    # sort by ts if available
-    try:
-        results.sort(key=lambda x: x.get("ts") or 0)
-    except Exception:
-        pass
-
-    return results
+        docs = data.get("documents", []) or []
+        results = []
+        for d in docs:
+            try:
+                obj = json.loads(d) if isinstance(d, str) else d
+                results.append(obj)
+            except:
+                pass
+        return results
+    except:
+        return []
 
 def delete_user(user_id: str, path: str = "./chroma_db") -> str:
     """Delete all data (memories and user info) by a given user_id."""
@@ -202,7 +245,6 @@ def main() -> None:
                 uid = input("User id (default: default_user): ") or "default_user"
                 ids = add_memories([text], user_id=uid)
                 conn = init_db()
-                add_message(conn, uid, "user", text)
                 print("Added memory ids:", ids)
             elif choice == "2":
                 uid = input("User id: ")

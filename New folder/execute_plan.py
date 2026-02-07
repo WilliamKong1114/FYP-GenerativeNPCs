@@ -8,6 +8,7 @@ from World_Environment.environment_tree import EnvironmentTree
 from World_Environment.agent_state import AgentStateManager
 from World_Environment.simulation_clock import SimulationClock
 from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
+from conversation_manager import ConversationManager
 
 def generate_new_skill(action_desc, agent_state=None, relevant_skills=None, last_code=None, error=None):
     guidelines = """
@@ -245,7 +246,8 @@ def execute_plan():
     
     client = UnityClient()
     state_manager = AgentStateManager()
-    clock = SimulationClock(time_scale=90.0) 
+    clock = SimulationClock(time_scale=90.0)
+    conv_manager = ConversationManager()
 
     agent_executions = {
         config["id"]: {
@@ -307,8 +309,41 @@ def execute_plan():
                         client.show_dialogue(emojis, agent_id=agent_id)
                         data["current_step"] += 1
 
+        current_agent_states = []
+        for agent_id, data in agent_executions.items():
+            agent_state = state_manager.state.get("agents", {}).get(agent_id, {})
+            current_agent_states.append({
+                "id": agent_id,
+                "persona": data["persona"],
+                "state": agent_state
+            })
+
+        # Group agents by interaction area for dynamic multi-agent conversations
+        agents_by_area = {}
+        for agent in current_agent_states:
+            area = agent["state"].get("interaction_area", "unknown")
+            if area and area != "unknown":
+                if area not in agents_by_area:
+                    agents_by_area[area] = []
+                agents_by_area[area].append(agent)
+
+        for area, group in agents_by_area.items():
+            if len(group) >= 2:
+                if conv_manager.start_conversation(group):
+                    ids = [a['id'] for a in group]
+                    loc = group[0]["state"].get("location", "unknown")
+                    print(f"\n--- Conversation Triggered: {', '.join(ids)} at {area} ({loc}) ---")
+                    context = f"{', '.join(ids)} are in the {area} near {loc}."
+                    
+                    for turn in conv_manager.generate_dialogue(group, context):
+                        speaker = turn["speaker"]
+                        text = turn["text"]
+                        print(f"[{speaker}] {text}")
+                        client.show_dialogue("💬", agent_id=speaker)
+                        time.sleep(1.5)
+
         state_manager.set_time(clock.get_time_string())
-        time.sleep(1) # Frequency of checking the clock and agents status
+        time.sleep(1)
 
     client.close()
 

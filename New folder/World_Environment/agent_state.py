@@ -2,8 +2,12 @@ import json
 import os
 
 class AgentStateManager:
-    def __init__(self, state_file="agent_state.json"):
-        self.state_file = state_file
+    def __init__(self, state_file=None):
+        if state_file is None:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self.state_file = os.path.join(base_dir, "agent_state.json")
+        else:
+            self.state_file = state_file
         self.state = self.load_state()
 
     def load_state(self):
@@ -21,7 +25,6 @@ class AgentStateManager:
             json.dump(self.state, f, indent=4)
 
     def update_agent(self, agent_name, action_description):
-        # Retrieve previous state to reset previous object if necessary
         prev_agent_data = self.state["agents"].get(agent_name, {})
         prev_object = prev_agent_data.get("interaction_object")
         prev_area = prev_agent_data.get("interaction_area")

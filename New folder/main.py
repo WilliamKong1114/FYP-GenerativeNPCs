@@ -67,7 +67,6 @@ class Agent:
         self.mood_score = 0.5
 
     def update_mood(self, event):
-        print(f"[Agent] current_mood(before): {self.mood_score}")
         if event == "user_rude":
             self.mood_score = max(self.mood_score - 0.5, -1.0)
         elif event == "user_nice":
@@ -77,7 +76,6 @@ class Agent:
                 self.mood_score = max(self.mood_score - 0.1, 0.0)
             elif self.mood_score < 0.0:
                 self.mood_score = min(self.mood_score + 0.1, 0.0)
-        print(f"[Agent] current_mood(after): {self.mood_score}")
 
     def get_mood(self):
         if self.mood_score >= 0.5:
@@ -214,20 +212,22 @@ def detect_user_sentiment(message: str) -> str:
     if any(word in msg for word in nice_words):
         return "user_nice"
 
-def chatbot(state: State):
-    user_id = config.get("configurable", {}).get("user_id", "1")
+def agent_node(state: State, config: RunnableConfig):
+    conf = config.get("configurable", {})
+    user_id = conf.get("user_id", "1")
+    agent_name = conf.get("agent_name", "Micky")
+    agent_persona = conf.get("agent_persona", "You are a friendly assistant.")
     
     if state["messages"]:
         last_message = state["messages"][-1].content
         memory_context = get_cached_memory_context(last_message, user_id)
-        sentiment = detect_user_sentiment(last_message)
-        agent.update_mood(sentiment)
+        # sentiment = detect_user_sentiment(last_message)
     else:
         memory_context = ""
 
     system_prompt = f"""
-        You are {agent.name}, a villager living in a village on flat land surrounded by forests and rivers.
-        {agent.get_personality_prompt()}
+        You are {agent_name}, a villager living in a village on flat land surrounded by forests and rivers.
+        {agent_persona}
         Answer common questions using your own knowledge.
         Use memory tools to remember and recall information about users. 
         Minimize greetings, salutations, or sign-offs. Start immediately with the answer.
@@ -237,9 +237,12 @@ def chatbot(state: State):
         - Use short sentences, contractions, and everyday language. 
         - Avoid sounding overly formal or poetic. 
         - Keep it simple and conversational, like chatting with a friend. 
-        - Avoid repeating previous statements unless necessary.
+        - Avoid repeating previous statements and topics unless necessary.
         - Adapt responses to the user’s latest input and keep them fresh.
         - Show curiosity and light enthusiasm naturally.
+        - Determine when to ask questions to keep the conversation flowing, but avoid asking too many in a row.
+        - Start no more than 3 topics within a conversation.
+        - Try to end conversations if the user seems disinterested or if the topic has been exhausted.
 
         Example:
         If someone mentions going fishing by the river, you might say:
@@ -255,7 +258,6 @@ def chatbot(state: State):
             role = getattr(m, "role", None) or getattr(m, "type", None) or "user"
             content = getattr(m, "content", None)
 
-        # only include non-empty string content
         if isinstance(content, str) and content.strip():
             normalized_role = str(role).lower()
             if normalized_role in ("human", "human_user", "human_user"):
@@ -266,10 +268,6 @@ def chatbot(state: State):
             user_msgs.append({"role": normalized_role, "content": content.strip()})
 
     msgs = [{"role": "system", "content": system_prompt}] + user_msgs
-
-    if not any(m.get("content") for m in msgs):
-        msgs.append({"role": "user", "content": "Hello."})
-
     tools_map = {
         "human_assistance": human_assistance,
         "saveUserInfo": saveUserInfo,
@@ -300,7 +298,6 @@ def _call_llm_with_tools_support(msgs, tools_map, max_rounds: int = 2):
             except Exception:
                 json_obj = None
         else:
-            # Search for a JSON object inside the text
             m = re.search(r"(\{[\s\S]*\})", content)
             if m:
                 try:
@@ -332,39 +329,147 @@ def _call_llm_with_tools_support(msgs, tools_map, max_rounds: int = 2):
         else:
             tool_output = f"Unknown tool requested: {tool_name}"
 
-        # Append the tool result into the conversation and continue the loop
-        # We add as a system message so the model can incorporate it before replying
         current_msgs.append({"role": "system", "content": f"Tool '{tool_name}' returned: {tool_output}"})
         round += 1
 
-    # After exhausting rounds, return the last response if any
     return resp
 
-builder.add_node("chatbot", chatbot)
+builder.add_node("agent", agent_node)
 
 tool_node = ToolNode(tools=tools)
 builder.add_node("tools", tool_node)
-builder.add_conditional_edges("chatbot", tools_condition)
-builder.add_edge("tools", "chatbot")
+builder.add_conditional_edges("agent", tools_condition)
+builder.add_edge("tools", "agent")
 
-builder.set_entry_point("chatbot")
-builder.add_edge("chatbot", END)
+builder.set_entry_point("agent")
+builder.add_edge("agent", END)
 
 memory = InMemorySaver()
 graph = builder.compile(checkpointer=memory, store=store)
 
-try:
-    runtime_user_id = manage_data.get_or_create_user_id()
-except Exception:
-    runtime_user_id = "1"
+runtime_user_id = manage_data.get_or_create_user_id()
+default_agent = Agent(name=runtime_user_id, friendliness=0.8)
 
-config = {"configurable": {"thread_id": "1", "user_id": runtime_user_id}}
-print(f"Using user_id={config['configurable']['user_id']}")
+config = {
+    "configurable": {
+        "thread_id": "1", 
+        "user_id": runtime_user_id,
+        "agent_name": default_agent.name,
+        "agent_persona": default_agent.get_personality_prompt()
+    }
+}
 
-agent = Agent(name="Micky", friendliness=0.8)
+def generate_agent_response(agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str, thread_id: str = None) -> str:
+    #if not thread_id:
+    #    thread_id = f"{agent_id}-mem"
+    
+    run_config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": agent_id,
+            "agent_name": agent_id,
+            "agent_persona": agent_persona
+        }
+    }
+    
+    inputs = {"messages": [{"role": "user", "content": triggering_msg}]}
+    
+    response_content = ""
+    try:
+        result = graph.invoke(inputs, run_config)
+        messages = result.get("messages", [])
+        if messages:
+            response_content = messages[-1].content
+    except Exception as e:
+        print(f"Error generating response for {agent_id}: {e}")
+        response_content = "..."
 
-def stream_graph_updates(user_input: str):
-    """Optimized streaming with better error handling"""
+    return response_content
+
+def get_conversation_records() -> list[dict[str, str]]:
+    """Retrieve the conversation records from the current thread."""
+    state = graph.get_state(config)
+    messages = state.values.get("messages", [])
+    records = []
+    for msg in messages:
+        if hasattr(msg, 'type') and hasattr(msg, 'content'):
+            records.append({"role": msg.type, "content": msg.content})
+        elif isinstance(msg, dict):
+            records.append({"role": msg.get("role", "unknown"), "content": msg.get("content", "")})
+    return records
+
+def summarize_conversation_and_store(user_id: str, raw_log: str = None, log_id: str = None) -> Optional[str]:
+    try:
+        memory_cache.clear()
+        if raw_log:
+            convo_text = raw_log
+        else:
+            convs = get_conversation_records()
+            if not convs:
+                convs = manage_data.list_conversations(user_id)
+                if not convs:
+                    return None
+
+            parts = []
+            for c in convs:
+                if isinstance(c, dict):
+                    role = c.get("role", "unknown")
+                    text = c.get("text") or c.get("content") or ""
+                else:
+                    role = "unknown"
+                    text = str(c)
+                if not text or not isinstance(text, str) or not text.strip():
+                    continue
+                parts.append(f"[{role}] {text.strip()}")
+            
+            convo_text = "\n".join(parts[-200:])
+
+        convo_Length = 200
+        system = {
+            "role": "system",
+            "content": 
+                f"""You are a concise memory summarizer for a generative agent named {user_id}. 
+                Distill the following conversation into one short, factual sentence (<={convo_Length} words) to be stored as {user_id}'s memory.
+                The summary must capture:
+                1. {user_id}'s own revealed plans, intent, or identity traits.
+                2. Key information, news, or observations {user_id} gathered about the conversation partner.
+                3. The main outcome or topic of the interaction.
+                Write the summary in the third person (e.g., '{user_id} discussed ... and learned that ...'). 
+                Output only the sentence — no explanations or filler."""
+        }
+        user_msg = {"role": "user", "content": f"Summarize the following conversation into one concise informative sentence:\n\n{convo_text}"}
+
+        resp = llm.invoke([system, user_msg])
+        summary = getattr(resp, "content", None) or str(resp)
+
+        manage_data.add_memories([summary], user_id=user_id)
+        manage_data.save_user_summary(user_id, summary, log_id=log_id)
+
+        print(f"--- Conversation summary for {user_id} saved ---")
+        print(summary)
+        return summary
+    except Exception as e:
+        print(f"Failed to summarize conversation for {user_id}: {e}")
+        return None
+
+#if __name__ == "__main__":
+#    while True:
+#        try:
+#            user_input = input("User: ")
+#            if user_input.lower() in ["quit", "exit", "q"]:
+#                print("Goodbye!")
+    #            summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
+    #            break
+    #        stream_graph_updates(user_input)
+    #    except KeyboardInterrupt:
+    #        print("\nGoodbye!")
+    #        summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
+    #        break
+    #    except Exception as e:
+    #        print(f"Unexpected error: {e}")
+    #        continue
+
+"""
     try:
         # Clear cached memory context for fresh responses on each new user input
         try:
@@ -393,7 +498,6 @@ def stream_graph_updates(user_input: str):
         print(f"{agent.name}: I encountered an error. Please try again.")
 
 def get_stream_graph_updates(user_input: str) -> str:
-    """Get the full assistant reply as a string"""
     reply_parts = []
     try:
         # Clear cached memory context so the retrieval uses up-to-date memories
@@ -417,81 +521,4 @@ def get_stream_graph_updates(user_input: str) -> str:
         return f"Error: {e}. I encountered an error. Please try again."
     
     return " ".join(reply_parts)
-
-def get_conversation_records() -> list[dict[str, str]]:
-    """Retrieve the conversation records from the current thread."""
-    state = graph.get_state(config)
-    messages = state.values.get("messages", [])
-    records = []
-    for msg in messages:
-        if hasattr(msg, 'type') and hasattr(msg, 'content'):
-            records.append({"role": msg.type, "content": msg.content})
-        elif isinstance(msg, dict):
-            records.append({"role": msg.get("role", "unknown"), "content": msg.get("content", "")})
-    return records
-
-def summarize_conversation_and_store(user_id: str) -> Optional[str]:
-    """Fetch conversation lines for `user_id`, ask the LLM for a concise summary,
-    store the summary into the `memories` collection and return it.
-    """
-    try:
-        memory_cache.clear()
-        convs = get_conversation_records()
-        if not convs:
-            convs = manage_data.list_conversations(user_id)
-            if not convs:
-                return None
-
-        parts = []
-        for c in convs:
-            if isinstance(c, dict):
-                role = c.get("role", "unknown")
-                text = c.get("text") or c.get("content") or ""
-            else:
-                role = "unknown"
-                text = str(c)
-            if not text or not isinstance(text, str) or not text.strip():
-                continue
-            parts.append(f"[{role}] {text.strip()}")
-        
-        convo_Length = 200
-        convo_text = "\n".join(parts[-convo_Length:])
-
-        system = {
-            "role": "system",
-            "content": 
-                f"""You are a concise memory summarizer for a generative agent. 
-                Produce one short, factual sentence (<={convo_Length} words) that captures the user's identity/profile, lasting preferences, important facts, 
-                and the main intent or plan revealed by the conversation. Output only the sentence — no explanations."""
-        }
-        user_msg = {"role": "user", "content": f"Summarize the following conversation into one concise informative sentence:\n\n{convo_text}"}
-
-        resp = llm.invoke([system, user_msg])
-        summary = getattr(resp, "content", None) or str(resp)
-
-        manage_data.add_memories([summary], user_id=user_id)
-
-        # Also print summary locally
-        print("--- Conversation summary saved to memories ---")
-        print(summary)
-        return summary
-    except Exception as e:
-        print(f"Failed to summarize conversation: {e}")
-        return None
-
-#if __name__ == "__main__":
-#    while True:
-#        try:
-#            user_input = input("User: ")
-#            if user_input.lower() in ["quit", "exit", "q"]:
-#                print("Goodbye!")
-    #            summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
-    #            break
-    #        stream_graph_updates(user_input)
-    #    except KeyboardInterrupt:
-    #        print("\nGoodbye!")
-    #        summarize_conversation_and_store(config.get("configurable", {}).get("user_id", "1"))
-    #        break
-    #    except Exception as e:
-    #        print(f"Unexpected error: {e}")
-    #        continue
+ """

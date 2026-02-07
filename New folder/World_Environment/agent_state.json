@@ -1,26 +1,38 @@
 {
     "agents": {
         "Samson": {
+            "location": "House [Samson]",
+            "action": "Arrange root vegetables on shelves in the cellar. @ World: House [Samson]: Table_Samson",
+            "interaction_object": "Table_Samson",
+            "interaction_area": "House [Samson]"
+        },
+        "Jimmy": {
             "location": "Garden",
-            "action": "Ben carefully selected ripe pumpkins from the vines. @ World: Garden: Farm",
-            "interaction_object": "Farm",
+            "action": "Jimmy collects dye-producing plants from the forest floor in the woodlands. @ World: Garden: Land",
+            "interaction_object": "Land",
             "interaction_area": "Garden"
         }
     },
     "objects": {
         "House [Samson]": {
+            "Bed": {
+                "state": "empty"
+            },
             "Table": {
                 "state": "empty"
             },
-            "Bed": {
+            "Bed_Samson": {
                 "state": "empty"
+            },
+            "Table_Samson": {
+                "state": "occupied"
             }
         },
         "Garden": {
-            "Land": {
+            "Farm": {
                 "state": "empty"
             },
-            "Farm": {
+            "Land": {
                 "state": "occupied"
             }
         },
@@ -29,13 +41,19 @@
                 "state": "empty"
             }
         },
+        "River": {
+            "River Bank": {
+                "state": "empty"
+            }
+        },
         "House [Jimmy]": {
-            "Table": {
+            "Bed_Jimmy": {
                 "state": "empty"
             },
-            "Bed": {
+            "Table_Jimmy": {
                 "state": "empty"
             }
         }
-    }
+    },
+    "time": "Day 0, 09:44"
 }
