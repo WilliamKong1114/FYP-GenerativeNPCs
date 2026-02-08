@@ -7,17 +7,17 @@ from langchain_google_vertexai import ChatVertexAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 import manage_data
-import main
 
 load_dotenv()
 
 CONVERSATION_COOLDOWN = 300
-PROBABILITY_TO_TALK = 0.7
+PROBABILITY_TO_TALK = 0.5
 MIN_CONVERSATION_TURNS = 8
 
 class ConversationManager:
-    def __init__(self):
+    def __init__(self, generate_response_func=None):
         self.last_conversation_time = {}
+        self.generate_response_func = generate_response_func
         self.llm = ChatVertexAI(
             model="gemini-2.5-flash",
             project="finalyearproject-473307",
@@ -36,7 +36,6 @@ class ConversationManager:
         
         agent_ids = [p['id'] for p in participants]
         group_key = self._get_group_key(agent_ids)
-        
         last_time = self.last_conversation_time.get(group_key, 0)
         
         if time.time() - last_time < CONVERSATION_COOLDOWN:
@@ -59,17 +58,18 @@ class ConversationManager:
         if len(dialogue_history) % 2 == 0:
             conv_history = "\n".join([f"{d['speaker']}: {d['text']}" for d in dialogue_history])
             prompt_content = f"""
-                You are a conversation auditor. Review the recent conversation history and decide whether the conversation should end now, and if so, produce a polite closing message.
+                You are a conversation auditor.
+                Review the recent conversation history and decide whether the conversation should end now, and if so, produce a closing message that suit your personality.
                 Conversation history:{conv_history}
 
                 Checklist — answer each internally (do NOT output the answers):
                 1) Has either participant explicitly said goodbye, thanked, or signaled ending (e.g., "bye", "that's all", "thanks, done")?
                 2) Has the main question been answered or the task completed with no clear follow-up request?
                 3) Is the conversation looping or going far: are the last 4–6 turns mostly confirmations, rephrases, or minor variations without new progress?
-                4) Redundancy check: has the same topic/question been asked again with substantially the same intent at least 2 times in the recent turns?
-                5) Engagement check: does a participant appear disinterested (very short replies, vague replies like "ok", "idk", "whatever", or no new info)?
-                6) Topic control: are there more than 3 distinct topics being discussed in this conversation segment, suggesting drift or lack of focus?
-                7) Stalled check: are both sides repeating explanations or requests because the other side is not responding meaningfully?
+                4) Has the same topic/question been asked again with substantially the same intent at least 2 times in the recent turns?
+                5) Does a participant appear disinterested (very short replies, vague replies like "ok", "idk", "whatever", or no new info)?
+                6) Are there more than 3 distinct topics being discussed in this conversation segment, suggesting drift or lack of focus?
+                7) Are both sides repeating explanations or requests because the other side is not responding meaningfully?
 
                 Decision rule:
                 - Respond "YES" (conversation should end) if ANY of these are true:
@@ -86,9 +86,8 @@ class ConversationManager:
                 - If the answer is YES:
                     Output two parts:
                     Line 1: YES
-                    Line 2: A short, friendly wrap‑up message (1–2 sentences), e.g.:
-                            "Thanks for the conversation! If you need anything else later, feel free to ask."
-
+                    Line 2: A wrap‑up message (1–2 sentences), e.g.:
+                            "Gonna go now! If you need anything else later, feel free to ask."
                 Do not output anything other than what is defined above.
                 """
 
@@ -109,7 +108,6 @@ class ConversationManager:
         self.last_conversation_time[group_key] = time.time()
 
         max_turns = 10 + (len(participants) * 3)
-        
         conv_id = str(uuid.uuid4())[:8]
 
         starter = random.choice(participants)
@@ -130,13 +128,16 @@ class ConversationManager:
                 others = [p for p in participants if p['id'] != current_speaker['id']]
                 others_str = ", ".join([p['id'] for p in others])
                 
-                response_text = main.generate_agent_response(
-                    agent_id=current_speaker['id'],
-                    agent_persona=current_speaker['persona'],
-                    triggering_msg=last_text,
-                    sender_id=sender_id,
-                    thread_id=f"{current_speaker['id']}_{conv_id}"
-                )
+                if self.generate_response_func:
+                    response_text = self.generate_response_func(
+                        agent_id=current_speaker['id'],
+                        agent_persona=current_speaker['persona'],
+                        triggering_msg=last_text,
+                        sender_id=sender_id,
+                        thread_id=f"{current_speaker['id']}_{conv_id}"
+                    )
+                else:
+                    response_text = f"Hello, {others_str}!"
                 
                 response_text = response_text.strip('"').strip()
                 if not response_text:
@@ -149,11 +150,9 @@ class ConversationManager:
                 last_text = response_text
                 sender_id = current_speaker['id']
                 
-                # Dynamic check for conversation completion
                 status = self.check_conversation_status(dialogue_history)
                 if status:
                     if isinstance(status, str):
-                        # Attribute wrap-up to the current speaker instead of "System"
                         wrap_up_turn = {"speaker": current_speaker['id'], "text": status}
                         dialogue_history.append(wrap_up_turn)
                         yield wrap_up_turn
@@ -184,7 +183,11 @@ class ConversationManager:
         log_id = manage_data.save_conversation_log(participants, log_string, place)
 
         for p in participants:
-            main.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
+            if self.generate_response_func:
+                import execute_plan
+                execute_plan.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
+            else:
+                manage_data.add_memories([log_string], user_id=p)
 
         conversation_text = f"Conversation between {', '.join(participants)} at {timestamp} in {place}:\n"
         for turn in dialogue:

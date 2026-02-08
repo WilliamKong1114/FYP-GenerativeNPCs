@@ -26,7 +26,6 @@ def process_node(tree, config_node, parent_node=None, valid_uuids=None):
 
     name = config_node.get("name")
     node_type = config_node.get("type", "object")
-    affordances = config_node.get("affordances", [])
     state = config_node.get("state", "empty")
     
     current_node = None
@@ -44,23 +43,22 @@ def process_node(tree, config_node, parent_node=None, valid_uuids=None):
         print(f"Updating existing node: {name}")
         updated = False
         
-        if set(current_node.affordances) != set(affordances):
-            current_node.affordances = affordances
-            updated = True
-
         if current_node.state != state:
             current_node.state = state
+            updated = True
+        
+        if current_node.node_type != node_type:
+            current_node.node_type = node_type
             updated = True
 
         if updated:
             tree.save_node(current_node)
     else:
-        print(f"Creating new node: {name}")
+        print(f"Creating new node: {name} ({node_type})")
         current_node = tree.add_node(
             name, 
             node_type, 
             parent=parent_node, 
-            affordances=affordances, 
             state=state
         )
 

@@ -5,104 +5,87 @@
     {
       "name": "House_Samson",
       "type": "area",
-      "affordances": ["Samson", "hygiene", "bathroom", "living", "tidy", "home"],
       "children": [
         {
           "name": "Table_Samson",
           "type": "object",
-          "state": "empty",
-          "affordances": ["Samson", "House", "cook", "dinner", "eat", "sit", "lunch", "breakfast", "meal", "food", "table", "dishes"]
-        },
+          "state": "empty"
+          },
         {
           "name": "Bed_Samson",
           "type": "object",
-          "state": "empty",
-          "affordances": ["Samson", "House", "sleep", "rest", "nap", "read", "book", "relax", "bed", "woke", "wake"]
-        }
+          "state": "empty"
+          }
       ]
     },
     {
       "name": "Garden",
       "type": "area",
-      "affordances": ["walk", "leisure", "outside", "nature"],
       "children": [
         {
           "name": "Land",
           "type": "area",
-          "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"],
           "children": [
             {
               "name": "Dirt (1)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (2)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (3)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (4)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (5)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (6)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (7)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (8)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (9)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (10)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (11)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            },
+              "state": "empty"
+          },
             {
               "name": "Dirt (12)",
               "type": "object",
-              "state": "empty",
-              "affordances": ["Land", "plant", "sow", "dig", "soil", "compost", "earth", "outside"]
-            }
+              "state": "empty"
+          }
 
           ]
         }
@@ -111,53 +94,48 @@
         {
       "name": "Storage",
       "type": "area",
-      "affordances": ["store", "tools", "materials", "supplies", "organize"],
       "children": []
     },
     {
       "name": "Workshop",
       "type": "area",
-      "affordances": ["work", "craft", "woodworking", "tools", "project", "repair", "assemble"],
       "children": [
         {
           "name": "Table",
           "type": "object",
-          "state": "empty",
-          "affordances": ["Workshop", "work", "craft", "woodworking", "tools", "project", "repair", "assemble"]
-        }
+          "state": "empty"
+          }
       ]
     },
     {
       "name": "River",
       "type": "area",
-      "affordances": ["River", "wash", "water", "cleanse", "swim", "fish", "outside", "nature"],
       "children": [
         {
           "name": "River Bank",
           "type": "object",
-          "state": "empty",
-          "affordances": ["River", "wash", "water", "cleanse", "swim", "fish"]
-        }
+          "state": "empty"
+          }
       ]
     },
     {
       "name": "House_Jimmy",
       "type": "area",
-      "affordances": ["Jimmy", "neighbor", "visit", "socialize", "friend", "chat", "talk"],
       "children": [
         {
           "name": "Table_Jimmy",
           "type": "object",
-          "state": "empty",
-          "affordances": ["Jimmy", "House", "cook", "dinner", "eat", "sit", "lunch", "breakfast", "meal", "food", "table", "dishes"]
-        },
+          "state": "empty"
+          },
         {
           "name": "Bed_Jimmy",
           "type": "object",
-          "state": "empty",
-          "affordances": ["Jimmy", "House", "sleep", "rest", "nap", "read", "book", "relax", "bed", "woke", "wake"]
-        }
+          "state": "empty"
+          }
       ]
     }
   ]
 }
+
+
+
