@@ -1,56 +1,49 @@
 import sqlite3
 import uuid
 import datetime
-import json as _json
-import vertexai
+import json
 import re
+import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
-from langchain_google_vertexai import ChatVertexAI
+from Secure.llm_config import planner_llm as llm
 
 load_dotenv()
-PLANS_DB = Path("plans.db")
-vertexai.init(project="finalyearproject-473307", location="us-central1")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "Database", "plans.db")
 
-llm = ChatVertexAI(
-    model="gemini-2.5-flash",
-    temperature=0.2,
-    max_tokens=None,
-    max_retries=3,
-    stop=None,
-)
+# llm definition moved to llm_config.py
 
-def _init_db(path: Path = PLANS_DB):
-    conn = sqlite3.connect(str(path))
-    cur = conn.cursor()
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS plans(
-            plan_id TEXT PRIMARY KEY,
-            user_id TEXT,
-            plan_json TEXT,
-            description TEXT,
-            created_on TEXT,
-            modified_on TEXT,
-            parent_id TEXT
-        )"""
-    )
+def get_plan(user_id: str):
+    conn = None
     try:
-        cur.execute("ALTER TABLE plans ADD COLUMN parent_id TEXT")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    return conn
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT plan_json FROM plans WHERE user_id = ? ORDER BY created_on DESC LIMIT 1", (user_id,))
+        row = cur.fetchone()
+        plan_data = json.loads(row[0])
+        return plan_data.get("description", ""), plan_data.get("emojis", [])
+
+    except sqlite3.Error as e:
+        print(f"Error reading database: {e}")
+        return None, []
+    except json.JSONDecodeError as e:
+        print(f"Error decoding plan JSON for user {user_id}: {e}")
+        return None, []
+    finally:
+        if conn:
+            conn.close()
 
 def store_plan(plan: List[Dict[str, Any]], user_id: str = "default_user", parent_id: Optional[str] = None) -> List[str]:
-    conn = _init_db(PLANS_DB)
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     ids = []
     for p in plan:
         plan_id = p.get("plan_id") or str(uuid.uuid4())        
         cur.execute(
             "INSERT OR REPLACE INTO plans(plan_id, user_id, plan_json, description, created_on, modified_on, parent_id) VALUES (?,?,?,?,?,?,?)",
-            (plan_id, user_id, _json.dumps(p), p.get("description"), p.get("created_on"), p.get("modified_on"), parent_id or p.get("parent_id")),
+            (plan_id, user_id, json.dumps(p), p.get("description"), p.get("created_on"), p.get("modified_on"), parent_id or p.get("parent_id")),
         )
         ids.append(plan_id)
         
@@ -65,40 +58,45 @@ def generate_emojis(actions: List[str]) -> List[str]:
             "You are an emoji translator. For each action in the numbered list below, "
             "provide exactly two emojis that best represent it. Do not add or include any gender signs or symbols.\n"
             "Return ONLY a JSON list of strings, where each string contains the two emojis. "
-            "Do not include markdown formatting or numbering in the output.\n\n"
+            "STRICT RULES:\n"
+            "1. Use ONLY base Unicode emojis.\n"
+            "2. DO NOT use skin tone modifiers or gender variants.\n"
+            "3. Do not include markdown formatting or numbering in the output.\n\n"
             f"Actions:\n{actions_formatted}\n\n"
             "Output Example:\n"
             '["🚶‍♂️🌲", "📖🕯️", "😴🌙"]'
         )
         response = llm.invoke(prompt)
         content = getattr(response, "content", "").strip()
-        if content.startswith("```json"):
-            content = content.replace("```json", "").replace("```", "")
-        if content.startswith("```"):
-            content = content.replace("```", "")
-        return _json.loads(content)
+        
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].strip()
+        emoji_list = json.loads(content)
+        return emoji_list
+    
     except Exception as e:
         print(f"Emoji generation failed: {e}")
-        return ["🤖⚡"] * len(actions)
+        return ["❓❓"] * len(actions)
 
 def plan_prompt(background: str, today: Optional[str] = None) -> str:
     now = today or datetime.date.today().isoformat()
     instruction = (
         "You are a helpful planning assistant.\n"
         "Given the person's profile and activities below, generate a concise plan for today as it would realistically occur in a medieval village setting\n"
-        "Reply with a short, numbered list of broad strokes for the day which follows the format with time section.\n"
-        "Use short sentences, contractions, and everyday language"
-        "Avoid sounding overly formal or poetic"
-        "Avoid repeating previous statements unless necessary"
+        "Reply with a numbered list of broad strokes for the day which STRICTLY follows the output format.\n"
+        
+        f"Persona and context:\n{background}\n"
+        
         "Requirements:\n"
         "1) Produce 5–8 high-level items for today's plan, numbered\n"
         "2) Keep each item to one sentence\n"
         "3) Use the persona details to prioritize tasks and habits\n"
         "4) Use short sentences, contractions, and everyday language\n"
         "5) Avoid sounding overly formal or poetic\n"
-        "6) Avoid repeating previous statements unless necessary\n"
-        f"Persona and context:\n{background}\n"
-        "Output format:\n"
+        
+        "Output format (STRICT):\n"
         "1) Woke up and complete the morning routine at 7:00 am\n"
         "2) Gardening the backyard at 8:00 am to 11:00 am\n"
         "...\n"
@@ -107,18 +105,22 @@ def plan_prompt(background: str, today: Optional[str] = None) -> str:
     return instruction
 
 def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_generation: bool = False) -> Dict[str, Any]:
-    system_msg = {"role": "system", "content": f"You are a helpful planning assistant that breaks down plans into finer-grained actions with time durations of {duration_prompt}."}
+    system_msg = {"role": "system", "content": f"You are a planning assistant that breaks down plans into finer-grained actions."}
     user_msg = {"role": "user", "content": (
             f"Given the following plan description, break it down into finer-grained actions with provided time durations of {duration_prompt} for each sentence.\n"
-            "The plan should be as it would realistically occur in a medieval village setting"
+            "The plan should be as it would realistically happens in a medieval village setting\n"
             f"Plan Description:\n{parent_plan.get('description')}\n"
             "Output each step as a sentence. Return a concise, numbered list of actions."
+            
             "Requirements:\n"
-            "1) Keep each item to one 10 to 15 words sentence with the name of the location or object that the action is performed at\n"
-            "2) Use relevant details to prioritize tasks and habits\n"
-            "3) Avoid sounding overly formal or poetic\n"
-            "4) Try to elaborate or extend the content where possible with reasonable activity\n"
-            "Output format example:\n"
+            "1) Start each line with \"1) 6:00 am:\" format, then write a 10–15 word sentence.\n"
+            "2) Use a single consistent character name who performs all actions.\n"
+            "3) Combine related tasks into one action per time slot where reasonable.\n"
+            "4) Maintain a simple, grounded tone without sounding poetic or overly formal.\n"
+            "5) Ensure each action includes a location or object (e.g., \"at the herb garden,\" \"in the weaving hut\").\n"
+            "6) The progression must follow a realistic medieval village routine with natural movement across locations.\n"
+            
+            "Output format (STRICT):\n"
             "1) 8:00 am: Tend the dirt land with tools to make the dirt better to be planted\n"
             "2) 9:30 am: Check the river for fish to prepare for the lunch later\n"
         ),
@@ -136,7 +138,7 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_gene
             if match:
                 actions.append(match.group(2))
         
-        emojis = generate_emojis(actions) if actions else []
+        emojis = generate_emojis(actions)
 
     plan_id = str(uuid.uuid4())
     user_id = parent_plan.get("user_id", "default_user")
@@ -184,4 +186,4 @@ if __name__ == "__main__":
         "He enjoys spinning wool, weaving sturdy cloth for villagers, and experimenting with natural dyes using flowers, bark, and roots gathered from the forest. His weaving hut—filled with spindles, dyed yarn bundles, and a well‑worn loom—is where he spends most afternoons working on new patterns."
         "His normal daily routine includes checking on drying fabrics hung behind his home, tending a few herb beds used for dyes, taking calm walks along the woods to gather plants, and speaking with travelers to exchange stories about trade routes and new weaving techniques. In the evenings, he often sits by the communal fire, sharing small handmade gifts or teaching basic weaving skills to younger villagers.")
     init_plan(uid, background=persona, today="2026-02-13")
-    print(f"Plan stored in {PLANS_DB} for user: {uid}")
+    print(f"Plan stored in {DB_PATH} for user: {uid}")

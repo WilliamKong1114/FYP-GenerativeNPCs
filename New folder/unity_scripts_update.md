@@ -26,11 +26,6 @@ public class MovementCommand
     public string description; // Action description
 }
 
-/// <summary>
-/// Persistent connection TCP listener - maintains one connection per agent.
-/// Each agent (Samson, Jimmy, etc.) keeps its socket open for continuous communication.
-/// More efficient than reconnecting for every command (120x faster for 15 agents).
-/// </summary>
 public class UnityTcpListener : MonoBehaviour
 {
     public int port = 5005;
@@ -63,8 +58,6 @@ public class UnityTcpListener : MonoBehaviour
 
     void Update()
     {
-        // Process MULTIPLE queued commands per frame to prevent lag/overflow
-        // Using a loop allows Unity to catch up if Python sends many commands quickly
         int processedCount = 0;
         int maxPerFrame = 50; // Process up to 50 commands per frame
 
@@ -81,6 +74,7 @@ public class UnityTcpListener : MonoBehaviour
 
             if (cmd != null && dispatcher != null)
             {
+                Debug.Log($"TCP Received cmd: {cmd.content}");
                 dispatcher.HandleCommand(cmd);
             }
             processedCount++;
@@ -110,10 +104,6 @@ public class UnityTcpListener : MonoBehaviour
         try { listener?.Stop(); } catch { }
     }
 
-    /// <summary>
-    /// Accept new agent connections and spawn persistent handler threads.
-    /// Each agent (Samson, Jimmy, etc.) connects once and maintains the connection.
-    /// </summary>
     void AcceptClientsLoop()
     {
         while (running)
@@ -158,6 +148,8 @@ public class UnityTcpListener : MonoBehaviour
     /// Handle persistent connection for one agent - keeps reading until agent disconnects.
     /// This runs in a dedicated thread per agent, allowing true parallel command processing.
     /// </summary>
+    ///
+
     void HandlePersistentClient(TcpClient client)
     {
         string clientId = client.Client.RemoteEndPoint.ToString();
@@ -256,14 +248,12 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
 {
     public void HandleCommand(MovementCommand cmd)
     {
-        // 1. Validate Agent
         if (string.IsNullOrEmpty(cmd.agent))
         {
             Debug.LogWarning("Command received without Agent ID");
             return;
         }
 
-        // 2. Find the Agent GameObject by Name (e.g., "Samson")
         GameObject agentObj = GameObject.Find(cmd.agent);
         if (agentObj == null)
         {
@@ -271,7 +261,6 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
             return;
         }
 
-        // 3. Get the SimAgent component
         SimAgent msgAgent = agentObj.GetComponent<SimAgent>();
         if (msgAgent == null)
         {
@@ -279,7 +268,6 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
             return;
         }
 
-        // 4. Dispatch Action
         Debug.Log($"Dispatching {cmd.action} to {cmd.agent}");
 
         switch (cmd.action.ToLower())
@@ -317,17 +305,17 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
+using System.Text.RegularExpressions;
 
 public class SimAgent : MonoBehaviour
 {
     public float moveSpeed = 2.0f;
     private Pathfinding pathfinder;
-    public GameObject dialoguePanel; // Assign world-space UI Canvas per agent
+    public GameObject dialoguePanel;
     public TMP_Text emojiText;
 
     void Start()
     {
-        // Auto-find pathfinder (Grid)
         pathfinder = FindObjectOfType<Pathfinding>();
         if (pathfinder == null) Debug.LogError("No Pathfinding script found in scene!");
 
@@ -339,7 +327,6 @@ public class SimAgent : MonoBehaviour
         GameObject targetObj = GameObject.Find(targetName);
         if (targetObj != null)
         {
-            // Look for Interaction Point (IP) child or use center
             Transform interactionPoint = targetObj.transform.Find("IP");
             Vector3 destination = (interactionPoint != null) ? interactionPoint.position : targetObj.transform.position;
 
@@ -347,7 +334,7 @@ public class SimAgent : MonoBehaviour
 
             if (path != null && path.Count > 0)
             {
-                StopAllCoroutines(); // Reset current motion/dialogue timers
+                StopAllCoroutines();
                 StartCoroutine(FollowPath(path));
             }
             else
@@ -365,12 +352,9 @@ public class SimAgent : MonoBehaviour
     {
         if (dialoguePanel != null && emojiText != null)
         {
-            emojiText.text = text;
+            string processedText = Regex.Unescape(text);
             dialoguePanel.SetActive(true);
-
-            // We use a separate coroutine so it doesn't get killed instantly if we move
-            // But since MoveTo uses StopAllCoroutines, moving will hide dialogue.
-            // Ideally, track coroutines separately. For now, matching original structure:
+            emojiText.text = processedText;
             StartCoroutine(HideDialogueCoroutine());
         }
     }
@@ -388,10 +372,8 @@ public class SimAgent : MonoBehaviour
         {
             Vector3 targetPos = new Vector3(path[targetIndex].x, path[targetIndex].y, transform.position.z);
 
-            // Move
             transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
 
-            // Rotate
             Vector3 dir = targetPos - transform.position;
             if (dir.sqrMagnitude > 0.001f)
             {
@@ -407,7 +389,7 @@ public class SimAgent : MonoBehaviour
         }
     }
 
-    public void Interact(string method, string targetName, string color = null)
+    public void Interact(string method, string targetName, string color=null)
     {
         if (string.IsNullOrEmpty(targetName))
         {

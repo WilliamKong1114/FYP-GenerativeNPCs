@@ -1,32 +1,89 @@
 {
     "agents": {
         "Jimmy": {
-            "action": "Jimmy rises from his straw bed, shaking off sleep. @ World: House_Jimmy: Bed_Jimmy",
+            "action": "Jimmy is resting at home. @ World/House_Jimmy/House_Jimmy",
             "interaction_area": "House_Jimmy",
-            "interaction_object": "Bed_Jimmy"
+            "interaction_object": "House_Jimmy"
         },
         "Samson": {
-            "action": "Put on simple tunic and breeches by the bed. @ World: House_Samson: Bed_Samson",
+            "action": "Samson is resting at home. @ World/House_Samson/House_Samson",
             "interaction_area": "House_Samson",
-            "interaction_object": "Bed_Samson"
+            "interaction_object": "House_Samson"
         }
     },
     "objects": {
         "Land": {
             "Dirt (1)": {
                 "state": "empty"
+            },
+            "Dirt (2)": {
+                "state": "empty"
+            },
+            "Dirt (3)": {
+                "state": "empty"
+            },
+            "Dirt (12)": {
+                "state": "empty"
+            },
+            "Dirt (5)": {
+                "state": "empty"
+            },
+            "Dirt (4)": {
+                "state": "empty"
+            },
+            "Dirt (8)": {
+                "state": "empty"
             }
         },
         "House_Jimmy": {
+            "Bed": {
+                "state": "empty"
+            },
+            "House": {
+                "state": "empty"
+            },
             "Bed_Jimmy": {
-                "state": "occupied"
+                "state": "empty"
+            },
+            "Table_Jimmy": {
+                "state": "empty"
+            },
+            "Hearth_Jimmy": {
+                "state": "empty"
+            },
+            "House_Jimmy": {
+                "state": "empty"
+            },
+            "Storage_Jimmy": {
+                "state": "empty"
             }
         },
         "House_Samson": {
+            "Bed": {
+                "state": "empty"
+            },
+            "Table": {
+                "state": "empty"
+            },
+            "House": {
+                "state": "empty"
+            },
+            "Wall": {
+                "state": "empty"
+            },
             "Bed_Samson": {
-                "state": "occupied"
+                "state": "empty"
             },
             "Table_Samson": {
+                "state": "empty"
+            },
+            "Storage_Samson": {
+                "state": "empty"
+            },
+            "House_Samson": {
+                "state": "empty"
+            },
+            "Hearth_Samson": {
                 "state": "empty"
             }
         },
@@ -38,8 +95,16 @@
         "Workshop": {
             "Table": {
                 "state": "empty"
+            },
+            "Table_Workshop": {
+                "state": "empty"
+            }
+        },
+        "River": {
+            "River Bank": {
+                "state": "empty"
             }
         }
     },
-    "time": "Day 0, 06:27"
+    "time": "Day 0, 06:54"
 }

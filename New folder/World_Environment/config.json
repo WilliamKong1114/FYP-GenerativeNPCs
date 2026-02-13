@@ -7,15 +7,71 @@
       "type": "area",
       "children": [
         {
+          "name": "House_Samson",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Wall",
+          "type": "object",
+          "state": "empty"
+        },
+        {
           "name": "Table_Samson",
           "type": "object",
           "state": "empty"
-          },
+        },
         {
           "name": "Bed_Samson",
           "type": "object",
           "state": "empty"
-          }
+        },
+                {
+          "name": "Storage_Samson",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Samson",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+        {
+      "name": "House_Jimmy",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Jimmy",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Wall",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Jimmy",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Jimmy",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Jimmy",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Jimmy",
+          "type": "object",
+          "state": "empty"
+        }
       ]
     },
     {
@@ -101,10 +157,20 @@
       "type": "area",
       "children": [
         {
-          "name": "Table",
+          "name": "Table_Workshop",
           "type": "object",
           "state": "empty"
-          }
+        },
+        {
+          "name": "Table_Workshop",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Workshop",
+          "type": "object",
+          "state": "empty"
+        } 
       ]
     },
     {
@@ -113,22 +179,6 @@
       "children": [
         {
           "name": "River Bank",
-          "type": "object",
-          "state": "empty"
-          }
-      ]
-    },
-    {
-      "name": "House_Jimmy",
-      "type": "area",
-      "children": [
-        {
-          "name": "Table_Jimmy",
-          "type": "object",
-          "state": "empty"
-          },
-        {
-          "name": "Bed_Jimmy",
           "type": "object",
           "state": "empty"
           }

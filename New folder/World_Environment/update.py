@@ -1,15 +1,12 @@
-# run the script after updating environment_config.json
+# run the script after updating config.json
 
 import json
 import os
 import sys
 
-# Add the root directory to sys.path so we can import from World_Environment
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from World_Environment.environment_tree import EnvironmentTree
 
-# Path relative to this script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
@@ -82,7 +79,6 @@ def update_tree():
     valid_uuids = set()
     process_node(tree, config, valid_uuids=valid_uuids)
     
-    # Identify and remove nodes that are no longer in the config
     all_uuids = set(tree.nodes.keys())
     to_remove = all_uuids - valid_uuids
     

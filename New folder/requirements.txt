@@ -2,6 +2,8 @@ chromadb
 python-dotenv
 langchain
 langchain-core
-langchain-google-vertexai
+langchain-azure-ai
+azure-ai-inference
 streamlit
-pandaspytest
+pandas
+pytest

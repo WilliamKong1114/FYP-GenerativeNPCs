@@ -4,7 +4,7 @@ Short project README for local setup and quick reference.
 
 ## Description
 
-This repository contains an experimental system that composes an AI-driven conversational graph for NPCs (non-player characters) using ChromaDB for memory storage and Google Vertex AI (via `langchain-google-vertexai`) as the LLM backend. The project includes:
+This repository contains an experimental system that composes an AI-driven conversational graph for NPCs (non-player characters) using ChromaDB for memory storage and GitHub Models (via `langchain-azure-ai`) as the LLM backend. The project includes:
 
 - A graph-based chatbot engine (`main.py`) which manages tools, memories, and streaming responses.
 - A small FastAPI wrapper (`api.py`) exposing a `/chat` endpoint for programmatic access.

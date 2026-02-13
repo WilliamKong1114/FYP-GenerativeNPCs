@@ -4,10 +4,10 @@ import uuid
 import os
 from typing import Optional, Dict, Any, List
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "places.db")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "Database", "places.db")
 
-def _get_conn(path: str = DB_PATH) -> sqlite3.Connection:
+def _get_conn(path: str = DB_PATH):
     conn = sqlite3.connect(path)
     conn.execute("""
     CREATE TABLE IF NOT EXISTS places (
@@ -20,8 +20,12 @@ def _get_conn(path: str = DB_PATH) -> sqlite3.Connection:
     return conn
 
 def add_place(name: str, position, metadata: Optional[Dict[str, Any]] = None, path: str = DB_PATH) -> None:
-    pos_parts = [p.strip() for p in position.split(",")]  
-    pos_text = f"{float(pos_parts[0])},{float(pos_parts[1])}"
+    pos_text = ""
+    if position:
+        pos_parts = [p.strip() for p in str(position).split(",")]  
+        if len(pos_parts) >= 2:
+            pos_text = f"{float(pos_parts[0])},{float(pos_parts[1])}"
+    
     meta = json.dumps(metadata or {})
 
     conn = _get_conn(path)
@@ -40,7 +44,7 @@ def get_place(name: str, path: str = DB_PATH) -> Optional[Dict[str, Any]]:
         return None
     uid, pname, pos_text, meta_text = row
     position = pos_text if pos_text else None
-    meta = json.loads(meta_text) if meta_text else {}
+    meta = json.loads(meta_text) if meta_text and meta_text != "null" else {}
 
     return {"uuid": uid, "name": pname, "position": position, "metadata": meta}
 
@@ -52,7 +56,7 @@ def list_places(path: str = DB_PATH) -> List[Dict[str, Any]]:
     result = []
     for uid, name, pos_text, meta_text in rows:
         position = pos_text if pos_text else None
-        meta = json.loads(meta_text) if meta_text else {None}
+        meta = json.loads(meta_text) if meta_text and meta_text != "null" else {}
         result.append({"uuid": uid, "name": name, "position": position, "metadata": meta})
     return result
 
