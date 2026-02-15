@@ -71,7 +71,7 @@ class UnityClient:
         cmd = {"action": action, **kwargs}
         if agent_id:
             cmd["agent"] = agent_id
-        if target:
+        if target:  
             cmd["target"] = target
         if content:
             cmd["content"] = content

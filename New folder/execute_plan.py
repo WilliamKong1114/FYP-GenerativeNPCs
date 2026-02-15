@@ -445,20 +445,28 @@ def main():
                     and data["active_task"] is None             # finished previous task
                     and not data.get("is_chatting", False)):    # not chatting
                     
-                    time_str, action = data["steps"][data["current_step"]]
-                    dt = datetime.datetime.strptime(time_str, "%I:%M %p")
-                    
-                    # Absolute scheduled minutes = (Current Sim Day * 1440) + task minutes from midnight
-                    # This ensures future day tasks don't start prematurely.
-                    scheduled_total_min = (sim_days * 1440) + (dt.hour * 60 + dt.minute)
-
-                    if total_min >= scheduled_total_min:
-                        cur_time = clock.get_time_string()
-                        future = executor.submit(
-                            execute_agent_action,
-                            agent_id, action, emojis, tree, client, state_manager, data, cur_time
-                        )
-                        data["active_task"] = future
+                    for step_index in range(data["current_step"], len(data["steps"])):
+                        
+                        time_str, action = data["steps"][step_index]
+                        dt = datetime.datetime.strptime(time_str, "%I:%M %p")
+                        
+                        # Absolute scheduled minutes = (Current Sim Day * 1440) + task minutes from midnight
+                        # This ensures future day tasks don't start prematurely.
+                        scheduled_total_min = (sim_days * 1440) + (dt.hour * 60 + dt.minute)
+                        if total_min >= scheduled_total_min:
+                            cur_time = clock.get_time_string()
+                            step_emoji = ""
+                            if "emojis" in data and isinstance(data["emojis"], list) and step_index < len(data["emojis"]):
+                                step_emoji = data["emojis"][step_index]
+                                if isinstance(step_emoji, list):
+                                    step_emoji = "".join(step_emoji)
+                                
+                            future = executor.submit(
+                                execute_agent_action,
+                                agent_id, action, step_emoji, tree, client, state_manager, data, cur_time
+                            )
+                            data["active_task"] = future
+                            break   # Only start one task per agent at a time
 
             with state_lock:
                 state_manager.set_time(clock.get_time_string())

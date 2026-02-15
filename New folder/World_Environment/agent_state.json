@@ -1,4 +1,5 @@
 {
+    "time": "Day 0, 06:04",
     "agents": {
         "Jimmy": {
             "action": "Jimmy is resting at home. @ World/House_Jimmy/House_Jimmy",
@@ -6,105 +7,61 @@
             "interaction_object": "House_Jimmy"
         },
         "Samson": {
-            "action": "Samson is resting at home. @ World/House_Samson/House_Samson",
-            "interaction_area": "House_Samson",
-            "interaction_object": "House_Samson"
+            "action": "Wake up and stretch in the straw bed. @ World: Garden: Land: Dirt (1)",
+            "interaction_area": "Land",
+            "interaction_object": "Dirt (1)"
         }
     },
     "objects": {
-        "Land": {
-            "Dirt (1)": {
-                "state": "empty"
-            },
-            "Dirt (2)": {
-                "state": "empty"
-            },
-            "Dirt (3)": {
-                "state": "empty"
-            },
-            "Dirt (12)": {
-                "state": "empty"
-            },
-            "Dirt (5)": {
-                "state": "empty"
-            },
-            "Dirt (4)": {
-                "state": "empty"
-            },
-            "Dirt (8)": {
-                "state": "empty"
-            }
-        },
-        "House_Jimmy": {
-            "Bed": {
-                "state": "empty"
-            },
-            "House": {
-                "state": "empty"
-            },
-            "Bed_Jimmy": {
-                "state": "empty"
-            },
-            "Table_Jimmy": {
-                "state": "empty"
-            },
-            "Hearth_Jimmy": {
-                "state": "empty"
-            },
-            "House_Jimmy": {
-                "state": "empty"
-            },
-            "Storage_Jimmy": {
-                "state": "empty"
-            }
-        },
         "House_Samson": {
-            "Bed": {
-                "state": "empty"
-            },
-            "Table": {
-                "state": "empty"
-            },
-            "House": {
-                "state": "empty"
-            },
-            "Wall": {
-                "state": "empty"
-            },
             "Bed_Samson": {
                 "state": "empty"
             },
             "Table_Samson": {
                 "state": "empty"
             },
-            "Storage_Samson": {
+            "House_Samson": {
                 "state": "empty"
             },
-            "House_Samson": {
+            "Wall": {
                 "state": "empty"
             },
             "Hearth_Samson": {
                 "state": "empty"
+            },
+            "Storage_Samson": {
+                "state": "empty"
             }
         },
-        "Garden": {
-            "Land": {
+        "House_Jimmy": {
+            "House_Jimmy": {
                 "state": "empty"
+            },
+            "Bed_Jimmy": {
+                "state": "empty"
+            },
+            "Storage_Jimmy": {
+                "state": "empty"
+            },
+            "Hearth_Jimmy": {
+                "state": "empty"
+            },
+            "Table_Jimmy": {
+                "state": "empty"
+            }
+        },
+        "Land": {
+            "Dirt (2)": {
+                "state": "empty"
+            },
+            "Dirt (1)": {
+                "state": "occupied"
             }
         },
         "Workshop": {
-            "Table": {
-                "state": "empty"
-            },
             "Table_Workshop": {
                 "state": "empty"
             }
-        },
-        "River": {
-            "River Bank": {
-                "state": "empty"
-            }
         }
-    },
-    "time": "Day 0, 06:54"
+    }
 }

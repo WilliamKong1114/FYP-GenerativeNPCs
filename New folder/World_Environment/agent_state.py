@@ -3,7 +3,9 @@ import os
 import threading
 
 class AgentStateManager:
-    def __init__(self, state_file="World_Environment\\agent_state.json"):
+    def __init__(self, state_file=None):
+        if state_file is None:
+            state_file = os.path.join(os.path.dirname(__file__), "agent_state.json")
         self.state_file = state_file
         self.lock = threading.RLock()
         self.state = self.load_state()

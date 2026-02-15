@@ -24,6 +24,5 @@ def _build_client(model_name: str, temperature: float):
 dialogue_llm = _build_client("meta/Meta-Llama-3.1-8B-Instruct", 0.3)
 skill_llm = _build_client("openai/gpt-4.1-mini", 0.2)
 planner_llm = _build_client("mistral-ai/Codestral-2501", 0.1)
-#routing_llm = _build_client("microsoft/Phi-4", 0.0)
-#routing_llm = _build_client("microsoft/Phi-4-mini-instruct", 0.0)
-routing_llm = _build_client("cohere/cohere-command-a", 0.0)
+routing_llm = _build_client("microsoft/Phi-4", 0.0)
+#routing_llm = _build_client("cohere/cohere-command-a", 0.0)

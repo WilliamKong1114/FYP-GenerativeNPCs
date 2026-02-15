@@ -161,7 +161,7 @@ public class UnityTcpListener : MonoBehaviour
             using (client)
             using (var stream = client.GetStream())
             {
-                byte[] buffer = new byte[4096];
+                byte[] buffer = new byte[8192];
 
                 // Keep reading commands from this agent's persistent connection
                 while (running && client.Connected)
@@ -179,6 +179,7 @@ public class UnityTcpListener : MonoBehaviour
                         }
 
                         string content = Encoding.UTF8.GetString(buffer, 0, bytesRead).Trim();
+                        Debug.Log($"Raw received: {content}");
 
                         // Process each command line
                         foreach (var line in content.Split('\n'))
@@ -268,24 +269,21 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
             return;
         }
 
-        Debug.Log($"Dispatching {cmd.action} to {cmd.agent}");
+        Debug.Log($"Doing {cmd.action} by {cmd.agent}; Emoji: {cmd.content}");
 
         switch (cmd.action.ToLower())
         {
             case "move_to":
+                Debug.Log($"[Dispatcher] Processing move_to for {cmd.agent}: target={cmd.target}, content={cmd.content}");
                 msgAgent.MoveTo(cmd.target);
-                if (!string.IsNullOrEmpty(cmd.content))
-                {
-                    msgAgent.showDialogue(cmd.content);
-                }
+                msgAgent.showDialogue(cmd.content);
                 break;
-
             case "interact":
                 msgAgent.Interact(cmd.method, cmd.target, cmd.color);
                 break;
 
             case "show_dialogue":
-                msgAgent.showDialogue(cmd.content);
+                msgAgent.showDialogue(cmd.content); 
                 break;
 
             case "stop":
