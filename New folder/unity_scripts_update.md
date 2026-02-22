@@ -283,7 +283,7 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
                 break;
 
             case "show_dialogue":
-                msgAgent.showDialogue(cmd.content); 
+                msgAgent.showDialogue(cmd.content);
                 break;
 
             case "stop":

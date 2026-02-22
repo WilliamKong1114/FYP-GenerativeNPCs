@@ -1,4 +1,4 @@
-import sqlite3, json, time, re, signal, datetime, threading, chromadb, hashlib
+import sqlite3, json, time, re, signal, datetime, threading, hashlib
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
@@ -21,9 +21,10 @@ from World_Environment.simulation_clock import SimulationClock
 from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
 from conversation_manager import ConversationManager
 from openai import APITimeoutError
+from chroma_client import get_client
 
 load_dotenv()
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+chroma_client = get_client(path="./chroma_db")
 
 @lru_cache(maxsize=2)
 def get_collection(name: str):
