@@ -11,21 +11,83 @@ from World_Environment.simulation_clock import SimulationClock
 load_dotenv()
 
 CONVERSATION_COOLDOWN = 300
-PROBABILITY_TO_TALK = 0.5
+PROBABILITY_TO_TALK = 0.7
 MIN_CONVERSATION_TURNS = 6
 MAX_TERNS = 20
 EXTRA_TURNS_PER_PARTICIPANT = 2
 
 class ConversationManager:
-    def __init__(self, generate_response_func=None, clock: "SimulationClock" = None):
+    def __init__(self, graph=None, clock: "SimulationClock"=None, debug_mode: bool = False):
         self.last_conversation_time = {}
-        self.generate_response_func = generate_response_func
         self.memory_manager = AgentMemoryManager()
         self.llm = dialogue_llm
         self.clock = clock
+        self.graph = graph
+        self.debug_mode = debug_mode
+        self.generate_response_func = self.generate_agent_response
+
+    def generate_agent_response(self,agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str = None, thread_id: str = None):
+        #incharge of in-game conversation generation
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
+                "user_id": agent_id,
+                "agent_name": agent_id,
+                "agent_persona": agent_persona
+            }
+        }
+        
+        inputs = {"messages": [{"role": "user", "content": triggering_msg}]}
+        response_content = ""
+        try:
+            result = self.graph.invoke(inputs, config)       #trigger agent_node and tools
+            messages = result.get("messages", [])
+            if messages:
+                response_content = messages[-1].content
+        except Exception as e:
+            print(f"Error generating response for {agent_id}: {e}")
+            response_content = "..."
+        return response_content
 
     def _get_group_key(self, agent_ids):
         return tuple(sorted(agent_ids))
+
+    def trigger_group_chat(self, current_agent_states: list, agent_executions: dict, client) -> None:
+        agents_by_group = {}
+        for agent in current_agent_states:
+            area = agent.get("state", {}).get("interaction_area", "unknown")
+            if ":" in area:
+                area = area.split(":")[-1].strip()
+            if area and area != "unknown":
+                agents_by_group.setdefault(area, []).append(agent)
+
+        for area, group in agents_by_group.items():
+            agent_ids = [a["id"] for a in group]
+            if self.start_conversation(group):
+                for a_id in agent_ids:
+                    agent_executions[a_id]["is_chatting"] = True
+                    if client: client.stop(agent_id=a_id)
+
+                print(f"\n--- Conversation Triggered: {', '.join(agent_ids)} at {area} ---")
+                context = f"{', '.join(agent_ids)} are in the {area}."
+
+                debug_convo = []
+                for turn in self.generate_dialogue(group, context):
+                    speaker = turn["speaker"]
+                    text = turn["text"]
+                    print(f"\n[D] {speaker}: {text}")
+                    if (self.debug_mode):
+                        debug_convo.append(f'{speaker}: "{text}"')
+                    if client: client.show_dialogue("dialogue", agent_id=speaker)
+
+                for a_id in agent_ids:
+                    agent_executions[a_id]["is_chatting"] = False
+                    agent_executions[a_id]["is_busy_until"] = time.time()
+                
+                if self.debug_mode and debug_convo:
+                    return debug_convo
+            else:
+                print(f"\n--- No Conversation: {', '.join(agent_ids)} at {area} ---")
 
     def start_conversation(self, participants):
         if len(participants) < 2:
@@ -38,13 +100,17 @@ class ConversationManager:
         if time.time() - last_time < CONVERSATION_COOLDOWN:
             return False
 
-        if random.random() > PROBABILITY_TO_TALK:
+        if random.uniform(0.1, 1.0) > PROBABILITY_TO_TALK:
             self.last_conversation_time[group_key] = time.time() - (CONVERSATION_COOLDOWN - 10) 
             return False
-
+        
         return True
 
     def summarize_conversation_and_store(self, user_id: str, raw_log: str = None, log_id: str = None) -> str:
+        if self.debug_mode:
+            print(f"(debug) summary skipped")
+            return raw_log or ""
+        
         import execute_plan
         execute_plan.memory_cache.clear()
         convo_length = 100
@@ -94,7 +160,7 @@ class ConversationManager:
                 f"Conversation history:{conv_history}\n"
                 "Checklist — answer each internally (do NOT output the answers):\n"
                 "1) Has either participant explicitly said goodbye, thanked, or signaled ending (e.g., \"bye\", \"that's all\", \"thanks, done\")?\n"
-                "2) Has the main question been answered or the task completed with no clear follow-up request?\n"
+                "2) Has the question been answered or the task completed with no clear follow-up request?\n"
                 "3) Is the conversation looping or going far: are the last 4–6 turns mostly confirmations, rephrases, or minor variations without new progress?\n"
                 "4) Has the same topic/question been asked again with substantially the same intent at least 2 times in the recent turns?\n"
                 "5) Are there more than 3 distinct topics being discussed in this conversation segment, suggesting drift or lack of focus?\n"
@@ -106,7 +172,7 @@ class ConversationManager:
                 "- If the answer is NO: Output ONLY: NO\n"
                 "- If the answer is YES: Output two parts:\n"
                 "  Line 1: YES\n"
-                "  Line 2: A wrap‑up sentences. Could be relevant to the conversation, such as readressing previously mentioned activities or meet-up if any. or just a closing.\n"
+                "  Line 2: A wrap‑up sentences. Including an answer within closing if a question has been asked. The closing could be relevant to the conversation, such as readressing previously mentioned activities or meet-up if any.\n"
                 "- The wrap-up sentence should be under first person perspective.\n"
                 
                 "\nHard constraints:\n"
@@ -116,6 +182,11 @@ class ConversationManager:
                 "- Your output must be either:\n"
                 "    - A single line: NO\n"
                 "    - Or two lines: YES and a wrap‑up sentence on the next line.\n"
+
+                "\nSpecial rule:\n"
+                "- If the other party asked you a question at any point, your wrap‑up must begin by answering that question directly.\n"
+                "- You may add a single additional sentence after the answer as a brief closing remark. Do not leave the question unanswered.\n"
+                "- Example: Q: Anything special you want to bring along? A: I’ll bring my fishing rod. See you at the willow bend."
             )
 
             full_resp = self.llm.invoke(prompt_content).content.strip()
@@ -186,6 +257,10 @@ class ConversationManager:
 
     def record_conversation(self, participants, dialogue, place):
         if not dialogue:
+            return
+        
+        if self.debug_mode:
+            print(f"(debug) conversation log skipped")
             return
         
         log_parts = [f'{turn["speaker"]}: "{turn["text"]}"' for turn in dialogue]

@@ -145,37 +145,17 @@ tools = [
     getUserInfo,
     #human_assistance
 ]
-builder = StateGraph(State)                                 #initialization & receive message
-builder.add_node("agent", agent_node)                       
-builder.add_node("tools", ToolNode(tools=tools))            
-builder.add_conditional_edges("agent", tools_condition)     #deciding whether to save/retrieve memories
-builder.add_edge("tools", "agent")           #accessing tools, retrieve memories back to agent
-builder.set_entry_point("agent")             #agent as the entry point
-builder.add_edge("agent", END)               #returning response
-graph = builder.compile(checkpointer=InMemorySaver(), store=InMemoryStore())
 
-def generate_agent_response(agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str = None, thread_id: str = None):
-    #incharge of in-game conversation generation
-    config = {
-        "configurable": {
-            "thread_id": thread_id,
-            "user_id": agent_id,
-            "agent_name": agent_id,
-            "agent_persona": agent_persona
-        }
-    }
-    
-    inputs = {"messages": [{"role": "user", "content": triggering_msg}]}
-    response_content = ""
-    try:
-        result = graph.invoke(inputs, config)       #trigger agent_node and tools
-        messages = result.get("messages", [])
-        if messages:
-            response_content = messages[-1].content
-    except Exception as e:
-        print(f"Error generating response for {agent_id}: {e}")
-        response_content = "..."
-    return response_content
+def get_graph():
+    builder = StateGraph(State)                                 #initialization & receive message
+    builder.add_node("agent", agent_node)                       
+    builder.add_node("tools", ToolNode(tools=tools))            
+    builder.add_conditional_edges("agent", tools_condition)     #deciding whether to save/retrieve memories
+    builder.add_edge("tools", "agent")           #accessing tools, retrieve memories back to agent
+    builder.set_entry_point("agent")             #agent as the entry point
+    builder.add_edge("agent", END)               #returning response
+    graph = builder.compile(checkpointer=InMemorySaver(), store=InMemoryStore())
+    return graph
 
 def parse_plan(description: str):
     lines = description.split('\n')
@@ -356,7 +336,7 @@ def main():
     client = UnityClient()
     state_manager = AgentStateManager()
     clock = SimulationClock(time_scale=90.0)
-    conv_manager = ConversationManager(generate_response_func=generate_agent_response, clock=clock)
+    conv_manager = ConversationManager(graph=get_graph(), clock=clock)
     
     num_agents = len(agents_config)
     max_workers = min(num_agents + 2, 20)
@@ -398,35 +378,7 @@ def main():
                     data["current_step"] = 0
                     print(f"[{agent_id}] Loaded plan for {agent_id} with {len(data['steps'])} steps.")
 
-            agents_by_group = {}
-            for agent in current_agent_states:
-                area = agent["state"].get("interaction_area", "unknown")
-                if ":" in area:
-                    area = area.split(":")[-1].strip()     
-                if area and area != "unknown":
-                    agents_by_group.setdefault(area, []).append(agent)
-                    #{"Center": [agent1, agent2], "Workshop": [agent3]}
-
-            for area, group in agents_by_group.items():
-                agent_ids = [a['id'] for a in group]
-                if conv_manager.start_conversation(group):                        
-                    for a_id in agent_ids:
-                        agent_executions[a_id]["is_chatting"] = True
-                        client.stop(agent_id=a_id)
-
-                    print(f"\n--- Conversation Triggered: {', '.join(agent_ids)} at {area} ---")
-                    context = f"{', '.join(agent_ids)} are in the {area}."
-                    
-                    for turn in conv_manager.generate_dialogue(group, context):
-                        speaker = turn["speaker"]
-                        text = turn["text"]
-                        print(f"\n[D] {speaker}: {text}")
-                        client.show_dialogue("dialogue", agent_id=speaker)
-                        #time.sleep(1.5)
-                    
-                    for a_id in agent_ids:
-                        agent_executions[a_id]["is_chatting"] = False
-                        agent_executions[a_id]["is_busy_until"] = time.time()
+            conv_manager.trigger_group_chat(current_agent_states, agent_executions, client)
 
             # Check completed tasks and update agent states
             for agent_id, data in agent_executions.items():

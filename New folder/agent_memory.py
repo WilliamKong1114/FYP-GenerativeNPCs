@@ -13,11 +13,11 @@ DB_PATH = os.path.join(BASE_DIR, "Database", "agent_memory.db")
 #DB_FILE = Path("agent_memory.db")
 
 class AgentMemoryManager:
-    def __init__(self, db_path: str = DB_PATH):
+    def __init__(self, db_path: str = DB_PATH, enable_db: bool = True):
         self.conn = sqlite3.connect(str(db_path), isolation_level=None)
         self.user_id = str(uuid.uuid4()) #random user ID
 
-    def add_conversation_log(self, participants: list, log_string: str, place: str):
+    def add_conversation_log(self, participants: list, log_string: str, place: str):        
         log_id = str(uuid.uuid4())
         participants_json = json.dumps(participants)
         created_on = datetime.now().isoformat()

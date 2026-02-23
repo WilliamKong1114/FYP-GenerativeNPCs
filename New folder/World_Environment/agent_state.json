@@ -1,15 +1,15 @@
 {
-    "time": "Day 0, 08:20",
+    "time": "Day 0, 06:39",
     "agents": {
         "Jimmy": {
-            "action": "Set the table for breakfast. @ World: House_Jimmy: Table_Jimmy",
+            "action": "Jimmy is resting at home. @ World/House_Jimmy/House_Jimmy",
             "interaction_area": "House_Jimmy",
-            "interaction_object": "Table_Jimmy"
+            "interaction_object": "House_Jimmy"
         },
         "Samson": {
-            "action": "Walk to the garden plot with a hoe. @ World: Garden: Land: Dirt (2)",
-            "interaction_area": "Land",
-            "interaction_object": "Dirt (2)"
+            "action": "Samson is resting at home. @ World/House_Samson/House_Samson",
+            "interaction_area": "House_Samson",
+            "interaction_object": "House_Samson"
         }
     },
     "objects": {
@@ -47,12 +47,12 @@
                 "state": "empty"
             },
             "Table_Jimmy": {
-                "state": "occupied"
+                "state": "empty"
             }
         },
         "Land": {
             "Dirt (2)": {
-                "state": "occupied"
+                "state": "empty"
             },
             "Dirt (1)": {
                 "state": "empty"

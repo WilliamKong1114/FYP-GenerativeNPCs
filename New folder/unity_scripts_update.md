@@ -907,3 +907,340 @@ public class Node
     }
 }
 ```
+
+## SimulationStarter.cs
+
+```csharp
+using UnityEngine;
+using UnityEngine.Networking;
+using System.Collections;
+using System.Text;
+using System.Collections.Generic;
+
+public class SimulationStarter : MonoBehaviour
+{
+    public static SimulationStarter Instance;
+    public string lastConversationLog = "No conversation recorded.";
+
+    [System.Serializable]
+    public class ConversationResponse { public List<string> dialogue; }
+
+    [Header("Backend Configuration")]
+    // Ensure this matches the port in your python debug_server.py (usually 8080 or 8000)
+    public string backendUrl = "http://localhost:8080";
+
+    void Awake()
+    {
+        // Singleton pattern: vital for Editor scripts to find this instance
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(gameObject); // Optional: keeps it alive if you change scenes
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
+    }
+
+    void Start()
+    {
+        // Optional: Ping the server to see if it's alive when game starts
+        StartCoroutine(HealthCheck());
+    }
+
+    /// <summary>
+    /// Checks if the Python server is running.
+    /// </summary>
+    IEnumerator HealthCheck()
+    {
+        using (UnityWebRequest request = UnityWebRequest.Get(backendUrl + "/health"))
+        {
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                Debug.Log($"[SimStarter] Backend Connected: {request.downloadHandler.text}");
+            }
+            else
+            {
+                Debug.LogWarning($"[SimStarter] Could not reach backend at {backendUrl}. Is 'debug_server.py' running?");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Calculates dialogue between two agents via Python LLM.
+    /// </summary>
+    public IEnumerator RequestConversation(string initiator, string receiver, string initLoc, string recLoc, string context = "Casual chat")
+    {
+        string url = $"{backendUrl}/generate_conversation";
+
+        // Create clean JSON payload
+        ConversationRequest payload = new ConversationRequest
+        {
+            initiator = initiator,
+            receiver = receiver,
+            initLoc = initLoc,
+            recLoc = recLoc,
+            context = context
+        };
+
+        string json = JsonUtility.ToJson(payload);
+
+        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+        {
+            byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            Debug.Log($"[SimStarter] Requesting conversation between {initiator} and {receiver}...");
+
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                string responseJson = request.downloadHandler.text;
+                //Debug.Log($"[SimStarter] Conversation Generated: {responseJson}");
+
+                try
+                {
+                    ConversationResponse resp = JsonUtility.FromJson<ConversationResponse>(responseJson);
+                    if (resp != null && resp.dialogue != null)
+                    {
+                        lastConversationLog = string.Join("\n", resp.dialogue);
+                    }
+                }
+                catch
+                {
+                    lastConversationLog = "Error parsing dialogue: " + responseJson;
+                }
+
+                // TODO: Here you would parse the responseJson into a C# object
+                // and pass it to your Dialogue UI to display the bubbles.
+                // Example: DialogueManager.Instance.ShowDialogue(responseJson);
+            }
+            else
+            {
+                Debug.LogError($"[SimStarter] Conversation Request Failed: {request.error}\nResponse: {request.downloadHandler.text}");
+            }
+        }
+    }
+}
+
+[System.Serializable]
+public class ConversationRequest
+{
+    public string initiator;
+    public string receiver;
+    public string initLoc;
+    public string recLoc;
+    public string context;
+}
+
+```
+
+## DebugControlPanel.cs
+
+```csharp
+using UnityEngine;
+using UnityEditor;
+using System.Collections.Generic;
+using System.Linq;
+
+public class DebugControlPanel : EditorWindow
+{
+    private Vector2 scrollPos;
+    private GUIStyle wrapperStyle;
+
+    [System.Serializable]
+    public class AgentEntry
+    {
+        public string id;
+        public bool isSelected;
+        public int locationIndex;
+    }
+
+    private List<AgentEntry> agentList = new List<AgentEntry>
+    {
+        new AgentEntry { id = "Samson", isSelected = false },
+        new AgentEntry { id = "Jimmy", isSelected = false }
+    };
+
+    private string newAgentName = "NewAgent";
+    private string[] locations = new string[] {
+        "House_Samson", "House_Jimmy", "Workshop", "River", "Garden", "TownSquare"
+    };
+
+    [MenuItem("FYP/Debug Control Panel")]
+    public static void ShowWindow() => GetWindow<DebugControlPanel>("Debug Controls");
+
+    void OnGUI()
+    {
+        if (wrapperStyle == null)
+        {
+            wrapperStyle = new GUIStyle(EditorStyles.label);
+            wrapperStyle.wordWrap = true;
+            wrapperStyle.richText = true;
+        }
+
+        GUILayout.Label("Agent Manager", EditorStyles.boldLabel);
+        DrawAgentList();
+
+        EditorGUILayout.Space();
+        GUILayout.Label("Group Actions", EditorStyles.boldLabel);
+
+        DrawGroupActions();
+
+        EditorGUILayout.Space();
+        GUILayout.Label("Dialogue Log", EditorStyles.boldLabel);
+
+        EditorGUILayout.BeginVertical("box");
+        scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(150));
+
+        string logText = (SimulationStarter.Instance != null) ?
+                         SimulationStarter.Instance.lastConversationLog :
+                         "NO LOG YET.";
+
+        GUILayout.Label(logText, wrapperStyle, GUILayout.ExpandHeight(true));
+        //EditorGUILayout.TextArea(logText, GUILayout.ExpandHeight(true));
+
+        EditorGUILayout.EndScrollView();
+
+        if (GUILayout.Button("Clear Log"))
+        {
+            if (SimulationStarter.Instance != null) SimulationStarter.Instance.lastConversationLog = "";
+        }
+        EditorGUILayout.EndVertical();
+    }
+
+    void DrawAgentList()
+    {
+        EditorGUILayout.BeginVertical("box");
+        GUILayout.Label("Agents", EditorStyles.boldLabel);
+
+        for (int i = 0; i < agentList.Count; i++)
+        {
+            EditorGUILayout.BeginHorizontal();
+
+            agentList[i].isSelected = EditorGUILayout.Toggle(agentList[i].isSelected, GUILayout.Width(20));
+            agentList[i].id = EditorGUILayout.TextField(agentList[i].id, GUILayout.Width(50));
+            agentList[i].locationIndex = EditorGUILayout.Popup(agentList[i].locationIndex, locations);
+            if (GUILayout.Button("TP", GUILayout.Width(35)))
+            {
+                MoveAgent(agentList[i].id, locations[agentList[i].locationIndex]);
+            }
+
+            GUI.backgroundColor = Color.red;
+            if (GUILayout.Button("X", GUILayout.Width(25)))
+            {
+                bool ok = EditorUtility.DisplayDialog(
+                    "Delete agent?", //title
+                    $"Remove {agentList[i].id} from the list?", //msg
+                    "Yes", "No");
+
+                if (ok)
+                {
+                    agentList.RemoveAt(i);
+                    EditorGUILayout.EndHorizontal();
+                    break;
+                }
+            }
+            GUI.backgroundColor = Color.white;
+            EditorGUILayout.EndHorizontal();
+        }
+
+        EditorGUILayout.Space();
+        EditorGUILayout.BeginHorizontal();
+        newAgentName = EditorGUILayout.TextField(newAgentName);
+        if (GUILayout.Button("Add Agent", GUILayout.Width(80)))
+        {
+            agentList.Add(new AgentEntry { id = newAgentName, isSelected = true });
+            newAgentName = "Agent_" + (agentList.Count + 1);
+        }
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.EndVertical();
+    }
+
+    void DrawGroupActions()
+    {
+        if (!Application.isPlaying)
+        {
+            EditorGUILayout.HelpBox("Enter Play Mode to trigger actions.", MessageType.Info);
+            return;
+        }
+
+        EditorGUILayout.BeginHorizontal();
+
+        // Count selected
+        var selectedAgents = agentList.Where(a => a.isSelected).ToList();
+        string buttonText = $"Interact ({selectedAgents.Count})";
+
+        if (GUILayout.Button(buttonText, GUILayout.Height(30)))
+        {
+            if (selectedAgents.Count < 2)
+            {
+                Debug.LogWarning("[Debug] Select at least 2 agents to start a conversation.");
+            }
+            else
+            {
+                TriggerConversation(selectedAgents[0], selectedAgents[1]);
+            }
+        }
+
+        if (GUILayout.Button("Teleport All Selected", GUILayout.Height(30)))
+        {
+            foreach (var agent in selectedAgents)
+            {
+                MoveAgent(agent.id, locations[agent.locationIndex]);
+            }
+        }
+
+        EditorGUILayout.EndHorizontal();
+    }
+
+    void MoveAgent(string agentId, string targetName)
+    {
+        GameObject agentObj = GameObject.Find(agentId);
+        GameObject targetObj = GameObject.Find(targetName);
+
+        if (targetObj == null)
+        {
+            Transform placeParent = GameObject.Find("Place")?.transform;
+            if (placeParent != null)
+            {
+                Transform t = placeParent.Find(targetName);
+                if (t != null) targetObj = t.gameObject;
+            }
+        }
+
+        if (agentObj && targetObj)
+        {
+            agentObj.GetComponent<SimAgent>().MoveTo(targetName);
+            Debug.Log($"[Debug] Teleported {agentId} to {targetName}");
+        }
+        else
+        {
+            Debug.LogError($"[Debug] Move Failed: Could not find '{agentId}' or '{targetName}'");
+        }
+    }
+
+    void TriggerConversation(AgentEntry initiator, AgentEntry receiver)
+    {
+        if (SimulationStarter.Instance != null)
+        {
+            string initLoc = locations[initiator.locationIndex];
+            string recLoc = locations[receiver.locationIndex];
+            SimulationStarter.Instance.StartCoroutine(
+                SimulationStarter.Instance.RequestConversation(initiator.id, receiver.id, initLoc, recLoc, "Meeting triggered by Debug Panel")
+            );
+        }
+        else
+        {
+            Debug.LogError("[Debug] SimulationStarter instance not found in scene.");
+        }
+    }
+}
+```
