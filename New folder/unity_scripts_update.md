@@ -296,8 +296,6 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
 
 ## 3. SimAgent.cs (Replaces UnityMovementController for Agents)
 
-Attach this to each Agent GameObject (Samson, Jimmy).
-
 ```csharp
 using System.Collections;
 using System.Collections.Generic;
@@ -316,18 +314,21 @@ public class SimAgent : MonoBehaviour
     {
         pathfinder = FindObjectOfType<Pathfinding>();
         if (pathfinder == null) Debug.LogError("No Pathfinding script found in scene!");
-
         if (dialoguePanel != null) dialoguePanel.SetActive(false);
     }
 
     public void MoveTo(string targetName)
     {
-        GameObject targetObj = GameObject.Find(targetName);
-        if (targetObj != null)
+        if (Environment.Instance == null)
         {
-            Transform interactionPoint = targetObj.transform.Find("IP");
-            Vector3 destination = (interactionPoint != null) ? interactionPoint.position : targetObj.transform.position;
+            Debug.LogError("Environment script is missing from the scene!");
+            return;
+        }
 
+        Vector3 destination = Environment.Instance.GetValidPosition(targetName);
+
+        if (destination != Vector3.zero)
+        {
             List<Vector3> path = pathfinder.FindPath(transform.position, destination);
 
             if (path != null && path.Count > 0)
@@ -337,15 +338,20 @@ public class SimAgent : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning($"[SimAgent {name}] No path to {targetName}");
+                // Fallback: If random point is unwalkable, try exact center
+                GameObject exactTarget = GameObject.Find(targetName);
+                if (exactTarget)
+                {
+                    path = pathfinder.FindPath(transform.position, exactTarget.transform.position);
+                    if (path != null && path.Count > 0)
+                    {
+                        StopAllCoroutines();
+                        StartCoroutine(FollowPath(path));
+                    }
+                }
             }
         }
-        else
-        {
-            Debug.LogError($"[SimAgent {name}] Target '{targetName}' not found!");
-        }
     }
-
     public void showDialogue(string text)
     {
         if (dialoguePanel != null && emojiText != null)
@@ -371,15 +377,15 @@ public class SimAgent : MonoBehaviour
             Vector3 targetPos = new Vector3(path[targetIndex].x, path[targetIndex].y, transform.position.z);
 
             transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
-
             Vector3 dir = targetPos - transform.position;
+
             if (dir.sqrMagnitude > 0.001f)
             {
                 float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
                 transform.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
             }
 
-            if (Vector3.Distance(transform.position, targetPos) < 0.05f)
+            if (Vector2.Distance(transform.position, targetPos) < 0.1f)
             {
                 targetIndex++;
             }
@@ -422,6 +428,7 @@ public class SimAgent : MonoBehaviour
         StopAllCoroutines();
     }
 }
+
 ```
 
 ## UnityMovementController.cs
@@ -1241,6 +1248,71 @@ public class DebugControlPanel : EditorWindow
         {
             Debug.LogError("[Debug] SimulationStarter instance not found in scene.");
         }
+    }
+}
+```
+
+## Environment.cs
+
+```csharp
+using UnityEngine;
+using System.Collections.Generic;
+
+public class Environment : MonoBehaviour
+{
+    public static Environment Instance;
+
+    // Configurable radius for all interaction points
+    public float globalInteractionRadius = 1.0f;
+
+    // Cache of IP positions to avoid GameObject.Find every frame
+    private Dictionary<string, Vector3> interactionPoints = new Dictionary<string, Vector3>();
+
+    void Awake()
+    {
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
+
+        RefreshInteractionPoints();
+    }
+
+    // Call this if objects are added dynamically
+    public void RefreshInteractionPoints()
+    {
+        interactionPoints.Clear();
+
+        // Find all GameObjects in scene (approach can be optimized with Tags if scene is huge)
+        GameObject[] allObjects = FindObjectsOfType<GameObject>();
+
+        foreach (var obj in allObjects)
+        {
+            // Logic: If object has a specific child named 'IP', store that position
+            Transform ipChild = obj.transform.Find("IP");
+            if (ipChild != null)
+            {
+                interactionPoints[obj.name] = ipChild.position;
+            }
+            // Optional: Also store the object's own position if no IP child exists
+            else if (obj.GetComponent<InteractableObject>() != null)
+            {
+                interactionPoints[obj.name] = obj.transform.position;
+            }
+        }
+    }
+
+    public Vector3 GetValidPosition(string targetName)
+    {
+        if (interactionPoints.ContainsKey(targetName))
+        {
+            Vector3 center = interactionPoints[targetName];
+
+            // Get random point within circle to prevent exact overlap
+            Vector2 randomOffset = Random.insideUnitCircle * globalInteractionRadius;
+            return center + new Vector3(randomOffset.x, randomOffset.y, 0);
+        }
+
+        Debug.LogWarning($"Target '{targetName}' or its IP not found in Environment cache.");
+        return Vector3.zero; // Indicator of failure
     }
 }
 ```

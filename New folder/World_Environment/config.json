@@ -147,11 +147,6 @@
         }
       ]
     },
-        {
-      "name": "Storage",
-      "type": "area",
-      "children": []
-    },
     {
       "name": "Workshop",
       "type": "area",
@@ -176,13 +171,7 @@
     {
       "name": "River",
       "type": "area",
-      "children": [
-        {
-          "name": "River Bank",
-          "type": "object",
-          "state": "empty"
-          }
-      ]
+      "children": []
     }
   ]
 }

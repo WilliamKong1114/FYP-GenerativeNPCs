@@ -24,7 +24,6 @@ class ConversationManager:
         self.clock = clock
         self.graph = graph
         self.debug_mode = debug_mode
-        self.generate_response_func = self.generate_agent_response
 
     def generate_agent_response(self,agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str = None, thread_id: str = None):
         #incharge of in-game conversation generation
@@ -39,20 +38,47 @@ class ConversationManager:
         
         inputs = {"messages": [{"role": "user", "content": triggering_msg}]}
         response_content = ""
-        try:
-            result = self.graph.invoke(inputs, config)       #trigger agent_node and tools
-            messages = result.get("messages", [])
-            if messages:
-                response_content = messages[-1].content
-        except Exception as e:
-            print(f"Error generating response for {agent_id}: {e}")
-            response_content = "..."
+        result = self.graph.invoke(inputs, config)       #trigger agent_node and tools
+        messages = result.get("messages", [])
+        if messages:
+            response_content = messages[-1].content
         return response_content
 
     def _get_group_key(self, agent_ids):
         return tuple(sorted(agent_ids))
 
-    def trigger_group_chat(self, current_agent_states: list, agent_executions: dict, client) -> None:
+    def handle_conversation(self, area: str, group: list, agent_executions: dict, client=None) -> None:
+        agent_ids = [a["id"] for a in group]
+
+        for a_id in agent_ids:
+            if a_id in agent_executions:
+                agent_executions[a_id]["is_busy_until"] = time.time() + 600 # Prevent other tasks while chatting
+                if client: 
+                    client.stop(agent_id=a_id)
+
+        print(f"\n--- Conversation Triggered: {', '.join(agent_ids)} at {area} ---")
+        context = f"{', '.join(agent_ids)} are in the {area}."
+
+        debug_convo = []
+        for turn in self.generate_dialogue(group, context):
+            speaker = turn["speaker"]
+            text = turn["text"]
+            print(f"\n[D] {speaker}: {text}")
+            if (self.debug_mode):
+                debug_convo.append(f'{speaker}: "{text}"')
+            if client: 
+                client.show_dialogue("dialogue", agent_id=speaker)
+
+        for a_id in agent_ids:
+            if a_id in agent_executions:
+                # Reset busy timer to now + small buffer so they don't instantly restart or snap
+                agent_executions[a_id]["is_busy_until"] = time.time() + 5
+        
+        if self.debug_mode and debug_convo:
+            return debug_convo
+        print(f"--- Conversation Ended: {', '.join(agent_ids)} ---")
+
+    def start_conversation(self, current_agent_states):
         agents_by_group = {}
         for agent in current_agent_states:
             area = agent.get("state", {}).get("interaction_area", "unknown")
@@ -61,50 +87,28 @@ class ConversationManager:
             if area and area != "unknown":
                 agents_by_group.setdefault(area, []).append(agent)
 
+        groups_to_start = []
         for area, group in agents_by_group.items():
-            agent_ids = [a["id"] for a in group]
-            if self.start_conversation(group):
-                for a_id in agent_ids:
-                    agent_executions[a_id]["is_chatting"] = True
-                    if client: client.stop(agent_id=a_id)
-
-                print(f"\n--- Conversation Triggered: {', '.join(agent_ids)} at {area} ---")
-                context = f"{', '.join(agent_ids)} are in the {area}."
-
-                debug_convo = []
-                for turn in self.generate_dialogue(group, context):
-                    speaker = turn["speaker"]
-                    text = turn["text"]
-                    print(f"\n[D] {speaker}: {text}")
-                    if (self.debug_mode):
-                        debug_convo.append(f'{speaker}: "{text}"')
-                    if client: client.show_dialogue("dialogue", agent_id=speaker)
-
-                for a_id in agent_ids:
-                    agent_executions[a_id]["is_chatting"] = False
-                    agent_executions[a_id]["is_busy_until"] = time.time()
-                
-                if self.debug_mode and debug_convo:
-                    return debug_convo
-            else:
-                print(f"\n--- No Conversation: {', '.join(agent_ids)} at {area} ---")
-
-    def start_conversation(self, participants):
-        if len(participants) < 2:
-            return False
+            if len(group) < 2:
+                continue
         
-        agent_ids = [p['id'] for p in participants]
-        group_key = self._get_group_key(agent_ids)
-        last_time = self.last_conversation_time.get(group_key, 0)
-        
-        if time.time() - last_time < CONVERSATION_COOLDOWN:
-            return False
+            agent_ids = [p['id'] for p in group]
+            group_key = self._get_group_key(agent_ids)
+            last_time = self.last_conversation_time.get(group_key, 0)
+            
+            if time.time() - last_time < CONVERSATION_COOLDOWN:
+                if self.debug_mode:
+                    print(f"\n--- No Conversation: {', '.join(agent_ids)} at {area} ---")
+                continue
 
-        if random.uniform(0.1, 1.0) > PROBABILITY_TO_TALK:
-            self.last_conversation_time[group_key] = time.time() - (CONVERSATION_COOLDOWN - 10) 
-            return False
-        
-        return True
+            if random.uniform(0.1, 1.0) > PROBABILITY_TO_TALK:
+                self.last_conversation_time[group_key] = time.time() - (CONVERSATION_COOLDOWN - 10)
+                if self.debug_mode:
+                    print(f"\n--- No Conversation: {', '.join(agent_ids)} at {area} ---")
+                continue
+
+            groups_to_start.append((area, group))
+        return groups_to_start
 
     def summarize_conversation_and_store(self, user_id: str, raw_log: str = None, log_id: str = None) -> str:
         if self.debug_mode:
@@ -172,7 +176,7 @@ class ConversationManager:
                 "- If the answer is NO: Output ONLY: NO\n"
                 "- If the answer is YES: Output two parts:\n"
                 "  Line 1: YES\n"
-                "  Line 2: A wrap‑up sentences. Including an answer within closing if a question has been asked. The closing could be relevant to the conversation, such as readressing previously mentioned activities or meet-up if any.\n"
+                "  Line 2: A wrap‑up sentences. Including an answer within closing if a question has been asked.\n"
                 "- The wrap-up sentence should be under first person perspective.\n"
                 
                 "\nHard constraints:\n"
@@ -220,16 +224,13 @@ class ConversationManager:
             others = [p for p in participants if p['id'] != current_speaker['id']]
             others_str = ", ".join([p['id'] for p in others])
             
-            if self.generate_response_func:
-                response_text = self.generate_response_func(
-                    agent_id=current_speaker['id'],
-                    agent_persona=current_speaker['persona'],
-                    triggering_msg=last_text,
-                    sender_id=sender_id,
-                    thread_id=f"{current_speaker['id']}_{conv_id}"
-                )
-            else:
-                response_text = f"Hello, {others_str}!"
+            response_text = self.generate_agent_response(
+                agent_id=current_speaker['id'],
+                agent_persona=current_speaker['persona'],
+                triggering_msg=last_text,
+                sender_id=sender_id,
+                thread_id=f"{current_speaker['id']}_{conv_id}"
+            )
             
             response_text = response_text.strip('"').strip()
             if not response_text:
@@ -263,16 +264,12 @@ class ConversationManager:
             print(f"(debug) conversation log skipped")
             return
         
-        log_parts = [f'{turn["speaker"]}: "{turn["text"]}"' for turn in dialogue]
-        log_string = "; ".join(log_parts)
-        log_id = self.memory_manager.add_conversation_log(participants, log_string, place)
-        for p in participants:
-            if self.generate_response_func:
+        try:
+            log_parts = [f'{turn["speaker"]}: "{turn["text"]}"' for turn in dialogue]
+            log_string = "; ".join(log_parts)
+            log_id = self.memory_manager.add_conversation_log(participants, log_string, place)
+            for p in participants:
                 self.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
-            else:
-                final_log = log_string
-                if self.clock:
-                    final_log = f"[{self.clock.get_time_string()}] {log_string}"
-                manage_data.add_memories([final_log], user_id=p)        
-        print(f"Saved conversation logs and summaries for {participants}")
-
+            print(f"Saved conversation logs and summaries for {participants}")
+        except Exception as e:
+            print(f"Error saving conversation: {e}")

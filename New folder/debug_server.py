@@ -7,7 +7,7 @@ from execute_plan import get_graph
 load_dotenv()
 app = Flask(__name__)
 clock = SimulationClock(time_scale=90.0)
-convo_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=True)
+conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=True)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -64,11 +64,17 @@ def generate_conversation():
         } for config in agents_config
     }
 
-    msg = convo_manager.trigger_group_chat(current_agent_states, agent_executions, client=None)
+    new_conversations = conv_manager.start_conversation(current_agent_states)
+    msg = []
+    if new_conversations:
+        for area, group in new_conversations:
+            dialogue = conv_manager.handle_conversation(area, group, agent_executions)            
+            if dialogue:
+                msg.extend(dialogue)
 
     return jsonify({
         "status": "success",
-        "dialogue": msg,
+        "dialogue": "No conversation" if not msg else msg,
         #"agent_executions": agent_executions,
     })
     

@@ -3,12 +3,10 @@ import os
 import threading
 
 class AgentStateManager:
-    def __init__(self, state_file=None):
-        if state_file is None:
-            state_file = os.path.join(os.path.dirname(__file__), "agent_state.json")
-        self.state_file = state_file
+    def __init__(self, file_path="agent_state.json"):
+        self.state_file = file_path
         self.lock = threading.RLock()
-        self.state = self.load_state()
+        self.state = {}
 
     def load_state(self):
         if os.path.exists(self.state_file):

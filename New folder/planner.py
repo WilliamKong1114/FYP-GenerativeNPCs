@@ -81,48 +81,48 @@ def generate_emojis(actions: List[str]) -> List[str]:
         return ["❓❓"] * len(actions)
 
 def plan_prompt(background: str, today: Optional[str] = None) -> str:
-    now = today or datetime.date.today().isoformat()
+    #now = today or datetime.date.today().isoformat()
     instruction = (
         "You are a helpful planning assistant.\n"
         "Given the person's profile and activities below, generate a concise plan for today as it would realistically occur in a medieval village setting\n"
-        "Reply with a numbered list of broad strokes for the day which STRICTLY follows the output format.\n"
-        
+        "Reply with a numbered list of broad strokes for the day using a STRICT 24-hour time format (e.g., 13:00, 18:30). Do not include 'am' or 'pm', and ensure all times are formatted as HH:MM."        
         f"Persona and context:\n{background}\n"
         
         "Requirements:\n"
-        "1) Produce 5–8 high-level items for today's plan, numbered\n"
-        "2) Keep each item to one sentence\n"
-        "3) Use the persona details to prioritize tasks and habits\n"
-        "4) Use short sentences, contractions, and everyday language\n"
-        "5) Avoid sounding overly formal or poetic\n"
+        "- Produce 8 to 10 high-level items for today's plan, numbered\n"
+        "- Keep each item to one sentence\n"
+        "- Use the persona details to prioritize tasks and habits\n"
+        "- Use short sentences, contractions, and everyday language\n"
+        "- Maintain a simple, grounded tone without sounding poetic or overly formal.\n"
         
         "Output format (STRICT):\n"
-        "1) Woke up and complete the morning routine at 7:00 am\n"
-        "2) Gardening the backyard at 8:00 am to 11:00 am\n"
+        "1) Woke up and complete the morning routine at 7:00\n"
+        "2) Gardening the backyard at 8:00 to 11:00\n"
         "...\n"
-        "8) Get ready to sleep around 10:00 pm.\n"
+        "8) Get ready to sleep around 22:00.\n"
     )
     return instruction
 
 def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_generation: bool = False) -> Dict[str, Any]:
     system_msg = {"role": "system", "content": f"You are a planning assistant that breaks down plans into finer-grained actions."}
     user_msg = {"role": "user", "content": (
-            f"Given the following plan description, break it down into finer-grained actions with provided time durations of {duration_prompt} for each sentence.\n"
+            f"Given the following plan description, break it down into finer-grained actions with provided time durations of specifically {duration_prompt} for each sentence.\n"
             "The plan should be as it would realistically happens in a medieval village setting\n"
             f"Plan Description:\n{parent_plan.get('description')}\n"
-            "Output each step as a sentence. Return a concise, numbered list of actions."
+            "Output each step as a sentence. Return a concise, numbered list of actions using a STRICT 24-hour time format (e.g., 13:00, 18:30). Do not include 'am' or 'pm', and ensure all times are formatted as HH:MM."
             
             "Requirements:\n"
-            "1) Start each line with \"1) 6:00 am:\" format, then write a 10–15 word sentence.\n"
-            "2) Use a single consistent character name who performs all actions.\n"
-            "3) Combine related tasks into one action per time slot where reasonable.\n"
-            "4) Maintain a simple, grounded tone without sounding poetic or overly formal.\n"
-            "5) Ensure each action includes a location or object (e.g., \"at the herb garden,\" \"in the weaving hut\").\n"
-            "6) The progression must follow a realistic medieval village routine with natural movement across locations.\n"
+            "- Cover every hour from 06:00 to 22:00 with time period of {duration_prompt} specifically.\n"
+            "- Start each line with \"1) 6:00:\" format, then write a 15–20 word sentence.\n"
+            "- Maintain a simple, grounded tone without sounding poetic or overly formal.\n"
+            "- Each action needs to include a specific area or object (e.g., \"at the herb garden,\" \"in the weaving hut\").\n"
             
             "Output format (STRICT):\n"
-            "1) 8:00 am: Tend the dirt land with tools to make the dirt better to be planted\n"
-            "2) 9:30 am: Check the river for fish to prepare for the lunch later\n"
+            "1) 8:00: Tend the dirt land with tools to make the dirt better to be planted\n"
+            "2) 9:30: Check the river for fish to prepare for the lunch later\n"
+            "...\n"
+            "31) 22:00: Get ready to sleep.\n"
+
         ),
     }
     resp = llm.invoke([system_msg, user_msg])
@@ -132,7 +132,7 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_gene
     if emoji_generation:
         lines = (out or "").split('\n')
         actions = []
-        pattern = re.compile(r'\d+\)\s+(\d+:\d+\s+[ap]m):\s+(.*)')
+        pattern = re.compile(r'\d+\)\s+(\d+:\d+):\s+(.*)')
         for line in lines:
             match = pattern.match(line.strip())
             if match:
@@ -157,9 +157,9 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_gene
 def init_plan(user_id: str, background: Optional[str], today: Optional[str] = None) -> Dict[str, Any]:
     plan_id = str(uuid.uuid4())
     instruction = plan_prompt(background, today=today)
-    system_msg = {"role": "system", "content": "You are a focused planning assistant. Produce a concise, numbered plan as instructed."}
+    #system_msg = {"role": "system", "content": "You are a focused planning assistant. Produce a concise, numbered plan as instructed."}
     user_msg = {"role": "user", "content": instruction}
-    resp = llm.invoke([system_msg, user_msg])
+    resp = llm.invoke([user_msg])
     out = getattr(resp, "content", None) or str(resp)
 
     top_plan: Dict[str, Any] = {
@@ -173,17 +173,30 @@ def init_plan(user_id: str, background: Optional[str], today: Optional[str] = No
 
     store_plan([top_plan], user_id=user_id)
     child_plan = decompose_plan(top_plan, duration_prompt="1 hour", emoji_generation=False)   
-    child_plan_2 = decompose_plan(child_plan, duration_prompt="15 minutes", emoji_generation=True)      
+    child_plan_2 = decompose_plan(child_plan, duration_prompt="30 minutes", emoji_generation=True)      
     return {"top_plan": top_plan, "child_plan": child_plan, "child_plan_2": child_plan_2}
 
 if __name__ == "__main__":
+    uid = "Samson"
+    persona = ("Name: Samson (age: 35)\n"
+        "Samson is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge."
+        "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons."
+        "He is boring and don't like to social with others."
+        "He has a small workshop where he crafts simple furniture and tools."
+        "Samson is being focused by his parent on learning new skills woodworking skills for better use.")
+    
+    """     
     uid = "Jimmy"
-    now = datetime.datetime.now().replace(second=0, microsecond=0)
     persona = ("Name: Jimmy (age: 54)\n"
         "Innate traits: calm, dependable, observant."
         "Jimmy is a 53‑year‑old villager who has spent his entire life in a modest medieval settlement nestled between rolling pasturelands and a slow‑moving river. Behind the village lie dense woodlands where he often walks to observe wildlife and gather smooth branches for crafting."
         "He was born into a family known for their skill in weaving and dyeing textiles, and from an early age he learned how to work with fibers, mix natural pigments, and appreciate the rhythm of careful handiwork. Over the decades, Jimmy became admired for his steady presence, gentle manner, and practical advice during busy harvest seasons."
         "He enjoys spinning wool, weaving sturdy cloth for villagers, and experimenting with natural dyes using flowers, bark, and roots gathered from the forest. His weaving hut—filled with spindles, dyed yarn bundles, and a well‑worn loom—is where he spends most afternoons working on new patterns."
         "His normal daily routine includes checking on drying fabrics hung behind his home, tending a few herb beds used for dyes, taking calm walks along the woods to gather plants, and speaking with travelers to exchange stories about trade routes and new weaving techniques. In the evenings, he often sits by the communal fire, sharing small handmade gifts or teaching basic weaving skills to younger villagers.")
+    """    
+    now = datetime.datetime.now().replace(second=0, microsecond=0)
     init_plan(uid, background=persona, today="2026-02-13")
     print(f"Plan stored in {DB_PATH} for user: {uid}")
+
+
+

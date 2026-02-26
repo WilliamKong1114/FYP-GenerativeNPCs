@@ -1,5 +1,5 @@
 {
-    "time": "Day 0, 06:39",
+    "time": "Day 1, 01:40",
     "agents": {
         "Jimmy": {
             "action": "Jimmy is resting at home. @ World/House_Jimmy/House_Jimmy",
@@ -60,6 +60,11 @@
         },
         "Workshop": {
             "Table_Workshop": {
+                "state": "empty"
+            }
+        },
+        "River": {
+            "River Bank": {
                 "state": "empty"
             }
         }

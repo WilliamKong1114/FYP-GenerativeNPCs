@@ -160,9 +160,9 @@ def get_graph():
 def parse_plan(description: str):
     lines = description.split('\n')
     steps = []
-    # Example: "1) 6:00 am: Wake up and go outside"
+    # Example: "15) 13:00: Head to the workshop to gather materials for crafting furniture."
     # \d+\) - 1); \s - whitespace; \d+:\d+\s+[ap]m - 6:00 am
-    pattern = re.compile(r'\d+\)\s+(\d+:\d+\s+[ap]m):\s+(.*)')
+    pattern = re.compile(r'\d+\)\s+(\d+:\d+):\s+(.*)')
     
     for line in lines:
         line = line.strip()
@@ -262,9 +262,7 @@ def signal_handler(sig, frame):
     shutdown = True
 
 def find_target(action: str, tree: EnvironmentTree, agent_context: str, agent_data):
-    if agent_data.get("is_chatting"):
-        return None, None, None, None
-    path_nodes = tree.find_suitable_location(action, agent_context)
+    path_nodes = tree.find_suitable_location(action, agent_context, agent_data)
     if not path_nodes:
         return None, None, None, None
     
@@ -290,9 +288,6 @@ def get_set_agent_state(state_manager, agent_id, action_desc=None, area=None, ob
 
 def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, agent_data, cur_time):
     
-    if agent_data.get("is_chatting", False):    #if chatting, skip action
-        return
-    
     agent_state = get_set_agent_state(state_manager, agent_id)
     current_area = agent_state.get("interaction_area", "Unknown Area")      #need to remove later
     agent_context = f"[Agent's Location Context] {agent_id} is currently in {current_area}."
@@ -300,6 +295,13 @@ def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, 
     target_name, action_desc, area_name, obj_name = find_target(action, tree, agent_context, agent_data)
     print(f"[{cur_time}] {agent_id}: {action} at {target_name}")
     client.move_to(target_name, emojis, action, agent_id)
+
+    for _ in range(10):
+        current_loc = get_set_agent_state(state_manager, agent_id).get("interaction_area", "")
+        if area_name and area_name in current_loc:
+            break
+        time.sleep(1)
+
     duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id=agent_id, agent_data=agent_data)
     get_set_agent_state(state_manager, agent_id, action_desc, area=area_name, obj=obj_name)
     return duration
@@ -309,12 +311,11 @@ def main():
         {
             "id": "Samson",
             "persona": ("Innate traits: friendly, outgoing."
-                "Samson is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge."
-                "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons."
-                "He enjoys helping others like growing fruit or vegetables, fishing, and woodworking. "
-                "He has a small workshop where he crafts simple furniture and tools. "
-                "Samson is also keen on learning new skills from travelers passing through the village.\n "
-                "Goals: Improve his woodworking skills to create more intricate furniture, expand his garden to include a wider variety of plants, and build stronger relationships within the village community, and busy to get ready for the coming winter.")
+            "Samson is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge."
+            "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons."
+            "He is boring and don't like to social with others."
+            "He has a small workshop where he crafts simple furniture and tools."
+            "Samson is being focused by his parent on learning new skills woodworking skills for better use.")
         },
         {
             "id": "Jimmy",
@@ -335,11 +336,11 @@ def main():
     
     client = UnityClient()
     state_manager = AgentStateManager()
-    clock = SimulationClock(time_scale=90.0)
-    conv_manager = ConversationManager(graph=get_graph(), clock=clock)
+    clock = SimulationClock(time_scale=300) #1 real seconds = 5 simulated minutes
+    conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False)
     
     num_agents = len(agents_config)
-    max_workers = min(num_agents + 2, 20)
+    max_workers = min(num_agents + 1, 20)
     executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Agent")
     
     agent_executions = {
@@ -355,9 +356,7 @@ def main():
     }
 
     try:
-        while not shutdown:
-            cur_days, cur_h, cur_m, total_min = clock.get_sim_time()
-            
+        while not shutdown:            
             with state_lock:
                 state_manager.refresh_state() 
                 current_agent_states = []
@@ -370,65 +369,66 @@ def main():
                         })
 
             if clock.is_new_day():
+                simulation_active = False
                 print(f"\n--- New Day - {clock.get_time_string()} ---")
                 for agent_id, data in agent_executions.items():
                     description, emojis = get_plan(agent_id)
+                    data["agent_name"] = agent_id
                     data["steps"] = parse_plan(description)
                     data["emojis"] = emojis
                     data["current_step"] = 0
                     print(f"[{agent_id}] Loaded plan for {agent_id} with {len(data['steps'])} steps.")
+                simulation_active = True
 
-            conv_manager.trigger_group_chat(current_agent_states, agent_executions, client)
+            if (simulation_active and clock.get_sim_hour() >= 6):
+                new_conversations = conv_manager.start_conversation(current_agent_states)
+                if new_conversations:
+                    for area, group in new_conversations:
+                        executor.submit(
+                            conv_manager.handle_conversation,
+                            area, group, agent_executions, client
+                        )
 
-            # Check completed tasks and update agent states
-            for agent_id, data in agent_executions.items():
-                if data["active_task"] is not None:
-                    if data["active_task"].done():
-                        duration = data["active_task"].result() or 0.0
-                        data["is_busy_until"] = time.time() + duration
-                        data["current_step"] += 1
-                        data["active_task"] = None
-            
-            # Get current day count to adjust scheduled_minutes
-            sim_days, _, _, _ = clock.get_sim_time()
+                        for agent in group:
+                            aid = agent['id']
+                            if aid in agent_executions:
+                                agent_executions[aid]["is_busy_until"] = time.time() + 5    
+                                agent_executions[aid]["is_chatting"] = False                    
 
-            for agent_id, data in agent_executions.items():
-                if (data["current_step"] < len(data["steps"])   # has tasks
-                    and time.time() >= data["is_busy_until"]    # not busy
-                    and data["active_task"] is None             # finished previous task
-                    and not data.get("is_chatting", False)):    # not chatting
-                    
-                    for step_index in range(data["current_step"], len(data["steps"])):
-                        
-                        time_str, action = data["steps"][step_index]
-                        dt = datetime.datetime.strptime(time_str, "%I:%M %p")
-                        
-                        # Absolute scheduled minutes = (Current Sim Day * 1440) + task minutes from midnight
-                        # This ensures future day tasks don't start prematurely.
-                        scheduled_total_min = (sim_days * 1440) + (dt.hour * 60 + dt.minute)
-                        if total_min >= scheduled_total_min:
-                            cur_time = clock.get_time_string()
-                            step_emoji = ""
-                            if "emojis" in data and isinstance(data["emojis"], list) and step_index < len(data["emojis"]):
-                                step_emoji = data["emojis"][step_index]
-                                if isinstance(step_emoji, list):
-                                    step_emoji = "".join(step_emoji)
+                for agent_id, data in agent_executions.items():
+                    is_busy = data["active_task"] is not None and not data["active_task"].done()
+                    is_cooldown = time.time() < data["is_busy_until"]
+
+                    if (not is_busy and not is_cooldown and not data["is_chatting"] and data["current_step"] < len(data["steps"])):    # has tasks remaining
+                        step_index = data["current_step"]
+                        action = data["steps"][step_index]
+                        cur_time = clock.get_time_string()
+                        step_emoji = ""
+                        if "emojis" in data and isinstance(data["emojis"], list) and step_index < len(data["emojis"]):
+                            step_emoji = data["emojis"][step_index]
+                            if isinstance(step_emoji, list):
+                                step_emoji = "".join(step_emoji)
                                 
-                            future = executor.submit(
-                                execute_agent_action,
-                                agent_id, action, step_emoji, tree, client, state_manager, data, cur_time
-                            )
-                            data["active_task"] = future
-                            break   # Only start one task per agent at a time
+                        future = executor.submit(
+                            execute_agent_action,
+                            agent_id, 
+                            action, 
+                            step_emoji, 
+                            tree, client, 
+                            state_manager, 
+                            data, 
+                            cur_time 
+                        )
+                        data["active_task"] = future
+                        data["is_busy_until"] = time.time() + 6  # Wait 6 real-world seconds
+                        data["current_step"] += 1
 
-            with state_lock:
-                state_manager.set_time(clock.get_time_string())
-    
+            if simulation_active:
+                clock.update_world_time(state_manager, state_lock)  #update world time inside state_manager
+
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] KeyboardInterrupt caught...")
         shutdown = True
-    except Exception as e:
-        print(f"[Error] Conversation generation failed: {e}")
     finally:        
         executor.shutdown(wait=False, cancel_futures=True)
         print("[SHUTDOWN] All agent tasks completed")

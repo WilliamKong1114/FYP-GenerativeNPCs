@@ -2,6 +2,7 @@ import sqlite3
 import threading
 import uuid
 import os
+import json
 from dotenv import load_dotenv
 from typing import List, Optional, Dict
 from Secure.llm_config import routing_llm as llm
@@ -21,7 +22,7 @@ class EnvironmentNode:
         self.uuid = uuid_str if uuid_str else str(uuid.uuid4())
         self.game_object_name = game_object_name
         self.state = state
-
+    
     def add_child(self, child: 'EnvironmentNode'):
         self.children.append(child)
         child.parent = self
@@ -45,6 +46,18 @@ class EnvironmentTree:
         self.root: Optional[EnvironmentNode] = None
         self.nodes: Dict[str, EnvironmentNode] = {}
         self.location_cache: Dict[str, List[EnvironmentNode]] = {}
+        self.action_map = self.load_action_map()
+
+    def load_action_map(self) -> Dict[str, List[str]]:
+        config_path = os.path.join(BASE_DIR, "World_Environment", "action_config.json")
+        mapping = {}
+        with open(config_path, 'r') as f:
+            data = json.load(f)
+            # Programmatic Population: Flatten grouped verbs into lookup keys
+            for entry in data:
+                for verb in entry.get("verbs", []):
+                    mapping[verb.lower()] = entry.get("targets", [])
+        return mapping
 
     def get_conn(self):
         return sqlite3.connect(self.db_path)
@@ -112,25 +125,50 @@ class EnvironmentTree:
             self.save_node(node)
             return node
         
-    def find_suitable_location(self, action: str, agent_context: str = "") -> List[EnvironmentNode]:
+    def find_suitable_location(self, action: str, agent_context: str = "", agent_data=None) -> List[EnvironmentNode]:
         if not self.root:
             self.load()
 
-        #Simple cache check
-        cache_key = f"{action.lower()}|{agent_context}"
-        if cache_key in self.location_cache:
-            return self.location_cache[cache_key]
-
-        #Fast string match
         action_lower = action.lower()
-        candidates = [node for node in self.nodes.values() if action_lower in node.name.lower() and node.state == "empty"]
-        if candidates:
-            #Return top match
-            target = candidates[0]
-        else:
-            #LLM fallback
-            target = self.find_target_location(self.root, action, agent_context)
+        agent_name = agent_data.get("agent_name")
+        cache_key = f"{action_lower}|{agent_context}"
+        target = None
 
+        target_tags = []
+        for verb, tags in self.action_map.items():
+            if verb in action_lower:
+                target_tags = tags
+                break
+        
+        if target_tags:
+            special_types = {"bed", "house", "storage", "table", "hearth"}
+            candidates = []
+
+            if agent_name:
+                search_patterns = [f"{t.capitalize()}_{agent_name}" for t in target_tags if t.lower() in special_types]
+                if search_patterns:
+                    candidates = [
+                        n for n in self.nodes.values() 
+                        if n.state == "empty" and any(pat in n.name for pat in search_patterns)
+                    ]
+
+            if not candidates:
+                candidates = [
+                    n for n in self.nodes.values() 
+                    if n.state == "empty" and any(t.lower() in n.name.lower() for t in target_tags)
+                ]
+
+            if candidates:
+                target = candidates[0]
+
+        if not target:
+            target = self.find_target_location(self.root, action, agent_context)
+            if target and target.state != "empty":
+                target = None
+
+        if not target:
+            return []
+        
         # Build path
         path = []
         current = target
