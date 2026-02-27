@@ -37,7 +37,3 @@ class SimulationClock:
             self.last_checked_day = current_day
             return True
         return False
-        
-    def update_world_time(self, state_manager, lock):
-        with lock:
-            state_manager.set_time(self.get_time_string())

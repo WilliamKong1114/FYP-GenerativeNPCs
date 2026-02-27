@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from World_Environment.simulation_clock import SimulationClock
 from conversation_manager import ConversationManager
 from execute_plan import get_graph
+from World_Environment.area_state_manager import area_system
 
 load_dotenv()
 app = Flask(__name__)
@@ -12,6 +13,21 @@ conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=Tr
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "ready", "mode": "debug"})
+
+@app.route('/update_area', methods=['POST'])
+def update_area():
+    data = request.json or {}
+    app.logger.info(f"Received data: {data}") 
+    agent_id = data.get("agentName")
+    area = data.get("areaName")
+    status = data.get("status")
+    
+    if not all([agent_id, area, status]):
+        return jsonify({"status": "error", "message": f"Missing fields: {agent_id, area, status}"}), 400
+    
+    area_system.get_manager(area).set_agent_in_area(agent_id, area, status)
+    
+    return jsonify({"status": "success", "message": f"Updated {agent_id} location to {area} with status {status}"})
 
 @app.route('/generate_conversation', methods=['POST'])
 def generate_conversation():
@@ -42,16 +58,6 @@ def generate_conversation():
         }
     ]
 
-    current_agent_states = [{
-        "id": initiator_id,
-        "state": {"interaction_area" : init_loc},
-        "persona": ""
-    }, {
-        "id": receiver_id,
-        "state": {"interaction_area" : rec_loc},
-        "persona": ""
-    }]
-
     agent_executions = {
         config["id"]: {
             "persona": config["persona"],
@@ -64,17 +70,25 @@ def generate_conversation():
         } for config in agents_config
     }
 
-    new_conversations = conv_manager.start_conversation(current_agent_states)
-    msg = []
-    if new_conversations:
-        for area, group in new_conversations:
-            dialogue = conv_manager.handle_conversation(area, group, agent_executions)            
-            if dialogue:
-                msg.extend(dialogue)
+    area_name = init_loc
 
+    if init_loc != rec_loc:
+        return jsonify({"status": "error", "message": f"Agents are in different areas: {init_loc} vs {rec_loc}. Conversation skipped."}), 400
+    
+    group = [
+        {"id": initiator_id, "persona": agent_executions[initiator_id]["persona"]},
+        {"id": receiver_id, "persona": agent_executions[receiver_id]["persona"]}
+    ]
+
+    dialogue_result = None
+    if conv_manager.start_conversation(area_name, group):
+        dialogue_result = conv_manager.handle_conversation(area_name, group, agent_executions)
+
+    dialogue = dialogue_result if dialogue_result else "No conversation generated."
+    
     return jsonify({
         "status": "success",
-        "dialogue": "No conversation" if not msg else msg,
+        "dialogue": dialogue,
         #"agent_executions": agent_executions,
     })
     

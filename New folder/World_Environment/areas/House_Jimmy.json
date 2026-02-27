@@ -1,0 +1,33 @@
+{
+    "objects": {
+        "Wall": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "House_Jimmy": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Table_Jimmy": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Bed_Jimmy": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Storage_Jimmy": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Hearth_Jimmy": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "unknown": {
+            "state": "empty",
+            "occupied_by": null
+        }
+    },
+    "agents": []
+}

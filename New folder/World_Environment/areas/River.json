@@ -1,0 +1,9 @@
+{
+    "objects": {
+        "unknown": {
+            "state": "empty",
+            "occupied_by": null
+        }
+    },
+    "agents": []
+}

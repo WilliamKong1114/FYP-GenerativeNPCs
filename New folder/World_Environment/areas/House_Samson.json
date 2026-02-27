@@ -1,0 +1,33 @@
+{
+    "objects": {
+        "Wall": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "House_Samson": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Table_Samson": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Bed_Samson": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Storage_Samson": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Hearth_Samson": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "unknown": {
+            "state": "empty",
+            "occupied_by": null
+        }
+    },
+    "agents": []
+}

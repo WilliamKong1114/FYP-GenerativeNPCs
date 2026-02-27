@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 import execute_plan
 import conversation_manager
-from World_Environment.agent_state import AgentStateManager
+from World_Environment.agent_state_manager import AgentStateManager
 
 def test_immediate_conversation():
     print("--- Starting Immediate Conversation Test ---")

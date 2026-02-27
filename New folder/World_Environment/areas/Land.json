@@ -1,0 +1,53 @@
+{
+    "objects": {
+        "Dirt (2)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (3)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (4)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (5)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (6)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (7)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (8)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (9)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (10)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (11)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (12)": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Dirt (1)": {
+            "state": "empty",
+            "occupied_by": null
+        }
+    },
+    "agents": []
+}

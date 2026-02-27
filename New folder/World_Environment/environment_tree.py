@@ -125,13 +125,13 @@ class EnvironmentTree:
             self.save_node(node)
             return node
         
-    def find_suitable_location(self, action: str, agent_context: str = "", agent_data=None) -> List[EnvironmentNode]:
+    def find_suitable_location(self, action: str, agent_data=None) -> List[EnvironmentNode]:
         if not self.root:
             self.load()
 
         action_lower = action.lower()
         agent_name = agent_data.get("agent_name")
-        cache_key = f"{action_lower}|{agent_context}"
+        cache_key = f"{action_lower}"
         target = None
 
         target_tags = []
@@ -162,7 +162,7 @@ class EnvironmentTree:
                 target = candidates[0]
 
         if not target:
-            target = self.find_target_location(self.root, action, agent_context)
+            target = self.find_target_location(self.root, action)
             if target and target.state != "empty":
                 target = None
 

@@ -6,6 +6,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from World_Environment.environment_tree import EnvironmentTree
+from World_Environment.area_state_manager import get_area_manager, AREAS_DIR
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
@@ -92,5 +93,35 @@ def update_tree():
 
     print("Environment Tree Updated.")
 
+def initialize_areas_json():
+    tree = EnvironmentTree()
+    tree.load()
+    
+    area_mapping = {}
+    
+    if tree.nodes:
+        for node in tree.nodes.values():
+            if node.node_type == "object" and node.parent:
+                area_name = node.parent.name
+                if area_name not in area_mapping:
+                    area_mapping[area_name] = []
+                area_mapping[area_name].append(node.name)
+            elif node.node_type in ["room", "area", "house"]:
+                if node.name not in area_mapping:
+                    area_mapping[node.name] = []
+
+    for area_name, obj_names in area_mapping.items():
+        manager = get_area_manager(area_name)
+        current_objects, agents_in_area = manager.get_area_state()
+        
+        for obj_name in obj_names:
+            if obj_name not in current_objects:
+                manager.set_area_state(obj_name, "empty", None)
+        
+        manager.save_state()
+    
+    print(f"[AreaStateManager] Synchronized {len(area_mapping)} area state files in {AREAS_DIR}")
+
 if __name__ == "__main__":
     update_tree()
+    initialize_areas_json()

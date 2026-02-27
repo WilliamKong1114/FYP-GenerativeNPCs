@@ -16,7 +16,8 @@ from planner import get_plan
 from unity_comm import UnityClient
 from Secure.llm_config import skill_llm as llm
 from World_Environment.environment_tree import EnvironmentTree
-from World_Environment.agent_state import AgentStateManager
+from World_Environment.agent_state_manager import AgentStateManager
+from World_Environment.area_state_manager import area_system
 from World_Environment.simulation_clock import SimulationClock
 from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
 from conversation_manager import ConversationManager
@@ -255,14 +256,16 @@ def resolve_and_execute_skill(action_desc, target_name, client, agent_id=None, a
     return 3.0
 
 shutdown = False
-state_lock = threading.Lock()
+#state_lock = threading.Lock()
+chat_lock = threading.Lock()
+
 
 def signal_handler(sig, frame):
     global shutdown
     shutdown = True
 
-def find_target(action: str, tree: EnvironmentTree, agent_context: str, agent_data):
-    path_nodes = tree.find_suitable_location(action, agent_context, agent_data)
+def find_target(action: str, tree: EnvironmentTree, agent_data):
+    path_nodes = tree.find_suitable_location(action, agent_data)
     if not path_nodes:
         return None, None, None, None
     
@@ -278,34 +281,65 @@ def find_target(action: str, tree: EnvironmentTree, agent_context: str, agent_da
         obj_name = "unknown"
         area_name = target_node.name
     return target_name, action_desc, area_name, obj_name
-
-def get_set_agent_state(state_manager, agent_id, action_desc=None, area=None, obj=None):
-    with state_lock:
-        agent_state = state_manager.state.get("agents", {}).get(agent_id, {})
-        if action_desc:
-            state_manager.update_agent(agent_id, action_desc, area=area, obj=obj)
-        return agent_state
-
-def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, agent_data, cur_time):
     
-    agent_state = get_set_agent_state(state_manager, agent_id)
-    current_area = agent_state.get("interaction_area", "Unknown Area")      #need to remove later
-    agent_context = f"[Agent's Location Context] {agent_id} is currently in {current_area}."
-
-    target_name, action_desc, area_name, obj_name = find_target(action, tree, agent_context, agent_data)
+def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, agent_data, cur_time, conv_manager, agent_executions):
+    
+    target_result = find_target(action, tree, agent_data)
+    target_name, action_desc, area_name, obj_name = target_result
+    
     print(f"[{cur_time}] {agent_id}: {action} at {target_name}")
-    client.move_to(target_name, emojis, action, agent_id)
-
-    for _ in range(10):
-        current_loc = get_set_agent_state(state_manager, agent_id).get("interaction_area", "")
-        if area_name and area_name in current_loc:
-            break
-        time.sleep(1)
-
-    duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id=agent_id, agent_data=agent_data)
-    get_set_agent_state(state_manager, agent_id, action_desc, area=area_name, obj=obj_name)
-    return duration
+    client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
     
+    area_manager = area_system.get_manager(area_name)
+    with area_manager.lock:
+        area_manager.load_state()
+        current_state = area_manager.get_area_state()
+        obj_info = current_state.get(obj_name, {})
+
+        if obj_info.get("state") == "occupied" and obj_info.get("occupied_by") != agent_id:
+            print(f"[{cur_time}] {agent_id}: {obj_name} is occupied by {obj_info.get('occupied_by')}")
+            return 3.0
+
+        area_manager.set_area_state(obj_name, "occupied", agent_id)
+
+    #time.sleep(2)
+    #duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id, agent_data)
+    
+    with area_manager.lock:
+        area_manager.load_state() 
+        area_manager.set_area_state(obj_name, "empty", None) # Action finished
+        agents_nearby = area_manager.get_agents_in_area()
+        potential_partners = [a for a in agents_nearby if a != agent_id]
+
+    if potential_partners and not agent_executions[agent_id]["is_chatting"]:
+        partner_id = potential_partners[0]
+        with chat_lock:
+            if not agent_executions[agent_id]["is_chatting"] and not agent_executions[partner_id]["is_chatting"]:
+                agent_executions[agent_id]["is_chatting"] = True
+                agent_executions[partner_id]["is_chatting"] = True
+                should_start = True
+            else:
+                should_start = False
+        
+        if should_start:
+            print(f"[{cur_time}] {agent_id} found {partner_id} in {area_name}. Starting chat...")
+            client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
+        
+            group = [
+                {"id": agent_id, "persona": agent_executions[agent_id]["persona"]}, 
+                {"id": partner_id, "persona": agent_executions[partner_id]["persona"]}
+            ]
+
+            if conv_manager.start_conversation(area_name, group):
+                conv_manager.handle_conversation(area_name, group, agent_executions=agent_executions, client=client)            
+            else:
+                with chat_lock:
+                    agent_executions[agent_id]["is_chatting"] = False
+                    agent_executions[partner_id]["is_chatting"] = False
+            
+        state_manager.set_agent_state(area_name, agent_id, action_desc, obj_name)
+    #return duration
+  
 def main():
     agents_config = [
         {
@@ -329,13 +363,15 @@ def main():
     
     global shutdown
     shutdown = False
-    signal.signal(signal.SIGINT, signal_handler)
+    #signal.signal(signal.SIGINT, signal_handler)
     
     tree = EnvironmentTree()
     tree.load()
     
     client = UnityClient()
-    state_manager = AgentStateManager()
+    agent_state_manager = AgentStateManager()
+    area_system.start_listener(5006)
+
     clock = SimulationClock(time_scale=300) #1 real seconds = 5 simulated minutes
     conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False)
     
@@ -356,18 +392,7 @@ def main():
     }
 
     try:
-        while not shutdown:            
-            with state_lock:
-                state_manager.refresh_state() 
-                current_agent_states = []
-                for agent_id, agent_state in state_manager.state.get("agents", {}).items():
-                    if agent_id in agent_executions:
-                        current_agent_states.append({
-                            "id": agent_id, 
-                            "state": agent_state,
-                            "persona": agent_executions[agent_id]["persona"]
-                        })
-
+        while not shutdown:   
             if clock.is_new_day():
                 simulation_active = False
                 print(f"\n--- New Day - {clock.get_time_string()} ---")
@@ -381,20 +406,6 @@ def main():
                 simulation_active = True
 
             if (simulation_active and clock.get_sim_hour() >= 6):
-                new_conversations = conv_manager.start_conversation(current_agent_states)
-                if new_conversations:
-                    for area, group in new_conversations:
-                        executor.submit(
-                            conv_manager.handle_conversation,
-                            area, group, agent_executions, client
-                        )
-
-                        for agent in group:
-                            aid = agent['id']
-                            if aid in agent_executions:
-                                agent_executions[aid]["is_busy_until"] = time.time() + 5    
-                                agent_executions[aid]["is_chatting"] = False                    
-
                 for agent_id, data in agent_executions.items():
                     is_busy = data["active_task"] is not None and not data["active_task"].done()
                     is_cooldown = time.time() < data["is_busy_until"]
@@ -410,21 +421,17 @@ def main():
                                 step_emoji = "".join(step_emoji)
                                 
                         future = executor.submit(
-                            execute_agent_action,
-                            agent_id, 
-                            action, 
-                            step_emoji, 
-                            tree, client, 
-                            state_manager, 
-                            data, 
-                            cur_time 
+                            execute_agent_action, agent_id, action[1], step_emoji, tree, client, 
+                            agent_state_manager, data, cur_time, conv_manager, agent_executions
                         )
+
                         data["active_task"] = future
                         data["is_busy_until"] = time.time() + 6  # Wait 6 real-world seconds
                         data["current_step"] += 1
 
             if simulation_active:
-                clock.update_world_time(state_manager, state_lock)  #update world time inside state_manager
+                agent_state_manager.set_time(clock.get_time_string())
+                time.sleep(1)
 
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] KeyboardInterrupt caught...")
@@ -432,9 +439,11 @@ def main():
     finally:        
         executor.shutdown(wait=False, cancel_futures=True)
         print("[SHUTDOWN] All agent tasks completed")
-        client.close()  # Closes all agent connections
+        area_system.stop_listener()
+        client.close()
         print("[SHUTDOWN] All connections closed")
-        state_manager.reset_agents()
+        agent_state_manager.reset_agents()
+        area_system.reset_all()
         print("[SHUTDOWN] Complete")
 
 if __name__ == "__main__":

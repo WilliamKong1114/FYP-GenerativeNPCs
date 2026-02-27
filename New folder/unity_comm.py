@@ -1,7 +1,7 @@
 import socket
 import json
 import threading
-from time import time
+import time
 
 class UnityClient:    
     def __init__(self, host: str = "127.0.0.1", port: int = 5005, timeout: float = 2.0, default_agent_id: str = None):
@@ -80,7 +80,7 @@ class UnityClient:
     def move_to(self, target: str, content: str = None, description: str = None, agent_id: str = None, wait_for_response: bool = False):
         self.build_and_send("move_to", agent_id, target=target, content=content, description=description)
         if wait_for_response:
-            return self._wait_for_arrival(agent_id, timeout=10.0)
+            return self._wait_for_arrival(agent_id, timeout=20.0)
         return True
 
     def show_dialogue(self, content: str, agent_id: str = None):
@@ -95,7 +95,7 @@ class UnityClient:
     def stop(self, agent_id: str = None):
         self.build_and_send("stop", agent_id)
 
-    def _wait_for_arrival(self, agent_id: str, timeout: float = 10.0):
+    def _wait_for_arrival(self, agent_id: str, timeout: float = 20.0):
         sock = self._get_connection(agent_id)
         if not sock:
             return False
@@ -115,8 +115,6 @@ class UnityClient:
                     if decoded == f"ARRIVED:{agent_id}":
                         return True
                 buffer = messages[-1]  # Keep incomplete message
-            except socket.timeout:
-                continue
             except Exception as e:
                 print(f"[C] Error waiting for arrival: {e}")
                 break

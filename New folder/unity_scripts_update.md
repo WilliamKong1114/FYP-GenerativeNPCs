@@ -956,9 +956,6 @@ public class SimulationStarter : MonoBehaviour
         StartCoroutine(HealthCheck());
     }
 
-    /// <summary>
-    /// Checks if the Python server is running.
-    /// </summary>
     IEnumerator HealthCheck()
     {
         using (UnityWebRequest request = UnityWebRequest.Get(backendUrl + "/health"))
@@ -976,9 +973,50 @@ public class SimulationStarter : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Calculates dialogue between two agents via Python LLM.
-    /// </summary>
+    [Serializable]
+    public class AreaUpdatePayload
+    {
+        public string agentName;
+        public string areaName;
+        public string status;
+    }
+
+    public IEnumerator RequestAreaUpdate(List<string> msg)
+    {
+        string url = $"{backendUrl}/update_area";
+
+        var payload = new AreaUpdatePayload
+        {
+            agentName = msg[0],
+            areaName = msg[1],
+            status = msg[2]
+        };
+
+        string json = JsonUtility.ToJson(payload);
+
+        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+        {
+            byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
+            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+
+            Debug.Log($"[SimStarter] Requesting updating area...");
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                string responseJson = request.downloadHandler.text;
+                string resp = JsonUtility.FromJson<string>(responseJson);
+                Debug.Log(resp);
+            }
+            else
+            {
+                Debug.LogError($"[SimStarter] Area Update Request Failed: {request.error}\nResponse: {request.downloadHandler.text}");
+            }
+        }
+    }
+
     public IEnumerator RequestConversation(string initiator, string receiver, string initLoc, string recLoc, string context = "Casual chat")
     {
         string url = $"{backendUrl}/generate_conversation";
@@ -1313,6 +1351,58 @@ public class Environment : MonoBehaviour
 
         Debug.LogWarning($"Target '{targetName}' or its IP not found in Environment cache.");
         return Vector3.zero; // Indicator of failure
+    }
+}
+```
+
+## AreaDetector.cs
+
+```csharp
+
+using System.Collections.Generic;
+using UnityEngine;
+public class AreaDetector : MonoBehaviour
+{
+    public string areaName;
+
+    private void Start()
+    {
+        areaName = gameObject.name;
+    }
+
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        SimAgent agent = other.GetComponent<SimAgent>();
+
+        if (agent != null)
+        {
+            string agentId = other.gameObject.name;
+            //Debug.Log($"{agentId} entered the {areaName}!");
+            sendUpdate(agentId, "enter");
+        }
+    }
+
+    private void OnTriggerExit2D(Collider2D other)
+    {
+        SimAgent agent = other.GetComponent<SimAgent>();
+
+        if (agent != null)
+        {
+            string agentId = other.gameObject.name;
+            //Debug.Log($"{agentId} Leave the {areaName}!");
+            sendUpdate(agentId, "exit");
+        }
+    }
+
+    public void sendUpdate(string agentName, string status)
+    {
+        using (TcpClient client = new TcpClient("127.0.0.1", 5006))
+        using (NetworkStream stream = client.GetStream())
+        {
+            string msg = $"[\"{agentName}\", \"{areaName}\", \"{status}\"]\n";
+            byte[] data = Encoding.UTF8.GetBytes(msg);
+            stream.Write(data, 0, data.Length);
+        }
     }
 }
 ```

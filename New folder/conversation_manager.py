@@ -2,6 +2,7 @@ import time
 import random
 import uuid
 import json
+import threading
 from dotenv import load_dotenv
 import manage_data
 from agent_memory import AgentMemoryManager
@@ -24,6 +25,7 @@ class ConversationManager:
         self.clock = clock
         self.graph = graph
         self.debug_mode = debug_mode
+        self.db_lock = threading.Lock()
 
     def generate_agent_response(self,agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str = None, thread_id: str = None):
         #incharge of in-game conversation generation
@@ -51,16 +53,16 @@ class ConversationManager:
         agent_ids = [a["id"] for a in group]
 
         for a_id in agent_ids:
-            if a_id in agent_executions:
-                agent_executions[a_id]["is_busy_until"] = time.time() + 600 # Prevent other tasks while chatting
-                if client: 
-                    client.stop(agent_id=a_id)
+            agent_executions[a_id]["is_chatting"] = True
+            agent_executions[a_id]["is_busy_until"] = time.time() + 600 # Prevent other tasks while chatting
+            if client: 
+                client.stop(agent_id=a_id)
 
         print(f"\n--- Conversation Triggered: {', '.join(agent_ids)} at {area} ---")
         context = f"{', '.join(agent_ids)} are in the {area}."
 
         debug_convo = []
-        for turn in self.generate_dialogue(group, context):
+        for turn in self.generate_dialogue(area, group, context):
             speaker = turn["speaker"]
             text = turn["text"]
             print(f"\n[D] {speaker}: {text}")
@@ -71,44 +73,31 @@ class ConversationManager:
 
         for a_id in agent_ids:
             if a_id in agent_executions:
-                # Reset busy timer to now + small buffer so they don't instantly restart or snap
+                agent_executions[a_id]["is_chatting"] = False
                 agent_executions[a_id]["is_busy_until"] = time.time() + 5
         
         if self.debug_mode and debug_convo:
             return debug_convo
         print(f"--- Conversation Ended: {', '.join(agent_ids)} ---")
 
-    def start_conversation(self, current_agent_states):
-        agents_by_group = {}
-        for agent in current_agent_states:
-            area = agent.get("state", {}).get("interaction_area", "unknown")
-            if ":" in area:
-                area = area.split(":")[-1].strip()
-            if area and area != "unknown":
-                agents_by_group.setdefault(area, []).append(agent)
-
-        groups_to_start = []
-        for area, group in agents_by_group.items():
-            if len(group) < 2:
-                continue
+    def start_conversation(self, areaName: str, group: list):        
+        agent_ids = [p['id'] for p in group]
+        group_key = self._get_group_key(agent_ids)
+        last_time = self.last_conversation_time.get(group_key, 0)
         
-            agent_ids = [p['id'] for p in group]
-            group_key = self._get_group_key(agent_ids)
-            last_time = self.last_conversation_time.get(group_key, 0)
-            
-            if time.time() - last_time < CONVERSATION_COOLDOWN:
-                if self.debug_mode:
-                    print(f"\n--- No Conversation: {', '.join(agent_ids)} at {area} ---")
-                continue
+        if time.time() - last_time < CONVERSATION_COOLDOWN:
+            if self.debug_mode:
+                print(f"\n--- No Conversation: {', '.join(agent_ids)} at {areaName} ---")
+            return False
 
-            if random.uniform(0.1, 1.0) > PROBABILITY_TO_TALK:
-                self.last_conversation_time[group_key] = time.time() - (CONVERSATION_COOLDOWN - 10)
-                if self.debug_mode:
-                    print(f"\n--- No Conversation: {', '.join(agent_ids)} at {area} ---")
-                continue
+        if random.uniform(0.1, 1.0) > PROBABILITY_TO_TALK:
+            self.last_conversation_time[group_key] = time.time() - (CONVERSATION_COOLDOWN - 10)
+            if self.debug_mode:
+                print(f"\n--- No Conversation: {', '.join(agent_ids)} at {areaName} ---")
+            return False
 
-            groups_to_start.append((area, group))
-        return groups_to_start
+        self.last_conversation_time[group_key] = time.time()
+        return True
 
     def summarize_conversation_and_store(self, user_id: str, raw_log: str = None, log_id: str = None) -> str:
         if self.debug_mode:
@@ -200,61 +189,63 @@ class ConversationManager:
                 return msg if msg else True        
         return False
 
-    def generate_dialogue(self, participants, context_str):
+    def generate_dialogue(self, area: str, participants: list, context_str):
         if not participants:
             return
         
         agent_ids = [p['id'] for p in participants]
         group_key = self._get_group_key(agent_ids)
-        self.last_conversation_time[group_key] = time.time()
+        #self.last_conversation_time[group_key] = time.time()
         max_turns = MAX_TERNS + (len(participants) * EXTRA_TURNS_PER_PARTICIPANT)
         conv_id = str(uuid.uuid4())[:8]
         starter = random.choice(participants)
         print(f"Starting chat between {', '.join(agent_ids)} ({conv_id})")
         
-        current_speaker = starter
-        sender_id = "System"
+        try:
+            current_speaker = starter
+            sender_id = "System"
 
-        other_ids = [pid for pid in agent_ids if pid != starter['id']]
-        last_text = f"You see {', '.join(other_ids)} nearby. {context_str} Say something to start a conversation."
-        dialogue_history = []
-        loc = participants[0]['state'].get('interaction_area', "Unknown Location") if participants else "Unknown Location"
+            other_ids = [pid for pid in agent_ids if pid != starter['id']]
+            last_text = f"You see {', '.join(other_ids)} nearby. {context_str} Say something to start a conversation."
+            dialogue_history = []
 
-        for i in range(max_turns):
-            others = [p for p in participants if p['id'] != current_speaker['id']]
-            others_str = ", ".join([p['id'] for p in others])
-            
-            response_text = self.generate_agent_response(
-                agent_id=current_speaker['id'],
-                agent_persona=current_speaker['persona'],
-                triggering_msg=last_text,
-                sender_id=sender_id,
-                thread_id=f"{current_speaker['id']}_{conv_id}"
-            )
-            
-            response_text = response_text.strip('"').strip()
-            if not response_text:
-                break
+            for i in range(max_turns):
+                others = [p for p in participants if p['id'] != current_speaker['id']]
+                others_str = ", ".join([p['id'] for p in others])
+                
+                response_text = self.generate_agent_response(
+                    agent_id=current_speaker['id'],
+                    agent_persona=current_speaker['persona'],
+                    triggering_msg=last_text,
+                    sender_id=sender_id,
+                    thread_id=f"{current_speaker['id']}_{conv_id}"
+                )
+                
+                response_text = response_text.strip('"').strip()
+                if not response_text:
+                    break
 
-            turn_data = {"speaker": current_speaker['id'], "text": response_text}
-            dialogue_history.append(turn_data)
-            yield turn_data
-            
-            last_text = response_text
-            sender_id = current_speaker['id']
-            
-            status = self.check_conversation_status(sender_id, dialogue_history)
-            if status:
-                if isinstance(status, str):
-                    wrap_up_turn = {"speaker": current_speaker['id'], "text": status}
-                    dialogue_history.append(wrap_up_turn)
-                    yield wrap_up_turn
-                print(f"Conversation ended at turn {i+1}")
-                break
-            if not others:
-                break
-            current_speaker = random.choice(others)
-        self.record_conversation(agent_ids, dialogue_history, loc)
+                turn_data = {"speaker": current_speaker['id'], "text": response_text}
+                dialogue_history.append(turn_data)
+                yield turn_data
+                
+                last_text = response_text
+                sender_id = current_speaker['id']
+                
+                status = self.check_conversation_status(sender_id, dialogue_history)
+                if status:
+                    if isinstance(status, str):
+                        wrap_up_turn = {"speaker": current_speaker['id'], "text": status}
+                        dialogue_history.append(wrap_up_turn)
+                        yield wrap_up_turn
+                    print(f"Conversation ended at turn {i+1}")
+                    break
+                if not others:
+                    break
+                current_speaker = random.choice(others)
+            self.record_conversation(agent_ids, dialogue_history, area)
+        except Exception as e:
+            print(f"Error during conversation: {e}")
 
     def record_conversation(self, participants, dialogue, place):
         if not dialogue:
@@ -264,12 +255,13 @@ class ConversationManager:
             print(f"(debug) conversation log skipped")
             return
         
-        try:
-            log_parts = [f'{turn["speaker"]}: "{turn["text"]}"' for turn in dialogue]
-            log_string = "; ".join(log_parts)
-            log_id = self.memory_manager.add_conversation_log(participants, log_string, place)
-            for p in participants:
-                self.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
-            print(f"Saved conversation logs and summaries for {participants}")
-        except Exception as e:
-            print(f"Error saving conversation: {e}")
+        with self.db_lock:
+            try:
+                log_parts = [f'{turn["speaker"]}: "{turn["text"]}"' for turn in dialogue]
+                log_string = "; ".join(log_parts)
+                log_id = self.memory_manager.add_conversation_log(participants, log_string, place)
+                for p in participants:
+                    self.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
+                print(f"Saved conversation logs and summaries for {participants}")
+            except Exception as e:
+                print(f"Error saving conversation: {e}")
