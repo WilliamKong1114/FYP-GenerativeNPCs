@@ -84,7 +84,7 @@ def generate_conversation():
     if conv_manager.start_conversation(area_name, group):
         dialogue_result = conv_manager.handle_conversation(area_name, group, agent_executions)
 
-    dialogue = dialogue_result if dialogue_result else "No conversation generated."
+    dialogue = dialogue_result if dialogue_result else "No conversation generated"
     
     return jsonify({
         "status": "success",

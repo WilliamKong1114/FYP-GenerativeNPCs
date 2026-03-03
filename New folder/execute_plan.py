@@ -289,7 +289,7 @@ def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, 
     
     print(f"[{cur_time}] {agent_id}: {action} at {target_name}")
     client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
-    
+
     area_manager = area_system.get_manager(area_name)
     with area_manager.lock:
         area_manager.load_state()
@@ -313,6 +313,10 @@ def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, 
 
     if potential_partners and not agent_executions[agent_id]["is_chatting"]:
         partner_id = potential_partners[0]
+
+        if agent_id > partner_id:  #Avoid both agent running the logic
+            return
+
         with chat_lock:
             if not agent_executions[agent_id]["is_chatting"] and not agent_executions[partner_id]["is_chatting"]:
                 agent_executions[agent_id]["is_chatting"] = True
@@ -322,20 +326,26 @@ def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, 
                 should_start = False
         
         if should_start:
-            print(f"[{cur_time}] {agent_id} found {partner_id} in {area_name}. Starting chat...")
-            client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
+            client.move_to(target_name, "", action, agent_id, wait_for_response=True)
         
+            client.set_chatting(agent_id, "start");
+            client.set_chatting(partner_id, "start");
+
             group = [
                 {"id": agent_id, "persona": agent_executions[agent_id]["persona"]}, 
                 {"id": partner_id, "persona": agent_executions[partner_id]["persona"]}
             ]
 
             if conv_manager.start_conversation(area_name, group):
+                print(f"[{cur_time}] {agent_id} found {partner_id} in {area_name}. Starting chat...")
                 conv_manager.handle_conversation(area_name, group, agent_executions=agent_executions, client=client)            
-            else:
-                with chat_lock:
-                    agent_executions[agent_id]["is_chatting"] = False
-                    agent_executions[partner_id]["is_chatting"] = False
+            
+            client.set_chatting(agent_id, "stop");
+            client.set_chatting(partner_id, "stop");
+            
+            with chat_lock:
+                agent_executions[agent_id]["is_chatting"] = False
+                agent_executions[partner_id]["is_chatting"] = False
             
         state_manager.set_agent_state(area_name, agent_id, action_desc, obj_name)
     #return duration
@@ -393,6 +403,9 @@ def main():
 
     try:
         while not shutdown:   
+            for agent_id in [config["id"] for config in agents_config]:
+                client.check_for_incoming(agent_id, agent_executions)
+
             if clock.is_new_day():
                 simulation_active = False
                 print(f"\n--- New Day - {clock.get_time_string()} ---")

@@ -2,7 +2,7 @@ import json
 import os
 
 class AgentStateManager:
-    def __init__(self, file_path="agent_state.json"):
+    def __init__(self, file_path="World_Environment/agent_state.json"):
         self.state_file = file_path
         self.state = {"agents": {}, "time": "unknown"}
         self.load_state()

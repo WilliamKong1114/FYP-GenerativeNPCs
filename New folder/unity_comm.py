@@ -80,8 +80,11 @@ class UnityClient:
     def move_to(self, target: str, content: str = None, description: str = None, agent_id: str = None, wait_for_response: bool = False):
         self.build_and_send("move_to", agent_id, target=target, content=content, description=description)
         if wait_for_response:
-            return self._wait_for_arrival(agent_id, timeout=20.0)
+            return self.wait_for_arrival(agent_id, timeout=20.0)
         return True
+    
+    def set_chatting(self, agent_id: str = None, content: str = None):
+        self.build_and_send("set_chatting", agent_id=agent_id, content=content)
 
     def show_dialogue(self, content: str, agent_id: str = None):
         self.build_and_send("show_dialogue", agent_id, content=content)
@@ -95,27 +98,64 @@ class UnityClient:
     def stop(self, agent_id: str = None):
         self.build_and_send("stop", agent_id)
 
-    def _wait_for_arrival(self, agent_id: str, timeout: float = 20.0):
+    def update_dialogue(self, agent_id: str, dialogue_lines: list):
+        dialogues = "\n".join(dialogue_lines)
+        self.build_and_send("update_dialogue", agent_id=agent_id, content=dialogues)
+
+    def handle_incoming_command(self, command_dict, agent_executions):
+        action = command_dict.get("action")
+        agent_id = command_dict.get("agent")
+        partner_id = command_dict.get("partner")
+
+        if action == "request_conversation" and agent_executions[agent_id]["is_chatting"] == True and agent_executions[partner_id]["is_chatting"] == True:
+            print(f"[TCP] Waiting for user to finish reading conversation...")
+            self.wait_for_conv_finish(agent_id)
+
+    def receive_msg(self, agent_id: str, timeout: float = 2.0):
         sock = self._get_connection(agent_id)
-        if not sock:
-            return False
+        if not sock: return []
         
+        try:
+            sock.settimeout(timeout)
+            data = sock.recv(1024)
+            if not data: 
+                return []
+
+            return [msg.decode('utf-8').strip() for msg in data.split(b"\n") if msg.strip()]
+        except (socket.timeout):
+            #print(f"[S] No message received.")
+            return []
+        except Exception as e:
+            print(f"[S] Error receiving message for {agent_id}: {e}")
+            return []
+
+    def wait_for_conv_finish(self, agent_id: str, timeout: float = 300.0):
         start_time = time.time()
-        buffer = b""
         while time.time() - start_time < timeout:
-            try:
-                sock.settimeout(1.0)  # Short timeout for polling
-                chunk = sock.recv(1024)
-                if not chunk:
-                    break
-                buffer += chunk
-                messages = buffer.split(b"\n")
-                for msg in messages[:-1]:  # Process complete messages
-                    decoded = msg.decode('utf-8').strip()
-                    if decoded == f"ARRIVED:{agent_id}":
+            messages = self.receive_msg(agent_id, timeout=3.0)
+            for msg in messages:
+                if msg.startswith("{"):
+                    cmd = json.loads(msg)
+                    if cmd.get("action") == "conversation_finished":
+                        print(f"[TCP] User finished reading. Resuming agents.")
                         return True
-                buffer = messages[-1]  # Keep incomplete message
-            except Exception as e:
-                print(f"[C] Error waiting for arrival: {e}")
-                break
-        return False  # Timeout or no confirmation
+        return False
+
+    def check_for_incoming(self, agent_id, agent_executions): 
+        """keep checking conv requests from Unity, if any, and handle them immediately"""
+        message = self.receive_msg(agent_id, timeout=0.001)
+        for msg in message:
+            try:
+                if msg.startswith("{"):
+                    cmd = json.loads(msg)
+                    self.handle_incoming_command(cmd, agent_executions)
+            except json.JSONDecodeError:
+                continue
+
+    def wait_for_arrival(self, agent_id: str, timeout: float = 20.0):        
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            message = self.receive_msg(agent_id, timeout=1.0)
+            if f"ARRIVED:{agent_id}" in message:
+                return True
+        return False 

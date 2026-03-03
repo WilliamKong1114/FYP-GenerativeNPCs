@@ -11,7 +11,7 @@ from World_Environment.simulation_clock import SimulationClock
 
 load_dotenv()
 
-CONVERSATION_COOLDOWN = 300
+CONVERSATION_COOLDOWN = 200
 PROBABILITY_TO_TALK = 0.7
 MIN_CONVERSATION_TURNS = 6
 MAX_TERNS = 20
@@ -51,6 +51,7 @@ class ConversationManager:
 
     def handle_conversation(self, area: str, group: list, agent_executions: dict, client=None) -> None:
         agent_ids = [a["id"] for a in group]
+        #group_key = self._get_group_key(agent_ids)
 
         for a_id in agent_ids:
             agent_executions[a_id]["is_chatting"] = True
@@ -62,14 +63,18 @@ class ConversationManager:
         context = f"{', '.join(agent_ids)} are in the {area}."
 
         debug_convo = []
+        dialogue_lines = []
         for turn in self.generate_dialogue(area, group, context):
             speaker = turn["speaker"]
             text = turn["text"]
             print(f"\n[D] {speaker}: {text}")
+
             if (self.debug_mode):
                 debug_convo.append(f'{speaker}: "{text}"')
-            if client: 
-                client.show_dialogue("dialogue", agent_id=speaker)
+                
+            dialogue_lines.append(f'{speaker}: "{text}"')
+            #if client: 
+                #client.show_dialogue("...", agent_id=speaker)
 
         for a_id in agent_ids:
             if a_id in agent_executions:
@@ -78,6 +83,10 @@ class ConversationManager:
         
         if self.debug_mode and debug_convo:
             return debug_convo
+        
+        if client and dialogue_lines:
+            client.update_dialogue(agent_ids[0], dialogue_lines)
+
         print(f"--- Conversation Ended: {', '.join(agent_ids)} ---")
 
     def start_conversation(self, areaName: str, group: list):        
@@ -265,3 +274,4 @@ class ConversationManager:
                 print(f"Saved conversation logs and summaries for {participants}")
             except Exception as e:
                 print(f"Error saving conversation: {e}")
+                

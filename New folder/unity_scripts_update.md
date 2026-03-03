@@ -249,45 +249,36 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
 {
     public void HandleCommand(MovementCommand cmd)
     {
-        if (string.IsNullOrEmpty(cmd.agent))
-        {
-            Debug.LogWarning("Command received without Agent ID");
-            return;
-        }
-
         GameObject agentObj = GameObject.Find(cmd.agent);
         if (agentObj == null)
         {
-            Debug.LogError($"Agent '{cmd.agent}' not found in scene!");
             return;
         }
-
-        SimAgent msgAgent = agentObj.GetComponent<SimAgent>();
-        if (msgAgent == null)
-        {
-            Debug.LogError($"GameObject '{cmd.agent}' does not have a SimAgent component!");
-            return;
-        }
-
+        SimAgent simAgent = agentObj.GetComponent<SimAgent>();
         Debug.Log($"Doing {cmd.action} by {cmd.agent}; Emoji: {cmd.content}");
 
         switch (cmd.action.ToLower())
         {
             case "move_to":
                 Debug.Log($"[Dispatcher] Processing move_to for {cmd.agent}: target={cmd.target}, content={cmd.content}");
-                msgAgent.MoveTo(cmd.target);
-                msgAgent.showDialogue(cmd.content);
+                simAgent.MoveTo(cmd.target);
+                simAgent.showDialogue(cmd.content);
                 break;
+
             case "interact":
-                msgAgent.Interact(cmd.method, cmd.target, cmd.color);
+                simAgent.Interact(cmd.method, cmd.target, cmd.color);
                 break;
 
             case "show_dialogue":
-                msgAgent.showDialogue(cmd.content);
+                simAgent.showDialogue(cmd.content);
+                break;
+
+            case "set_chatting":
+                simAgent.IsInConversation = (cmd.content == "start");
                 break;
 
             case "stop":
-                msgAgent.StopMotion();
+                simAgent.StopMotion();
                 break;
         }
     }
@@ -309,6 +300,8 @@ public class SimAgent : MonoBehaviour
     private Pathfinding pathfinder;
     public GameObject dialoguePanel;
     public TMP_Text emojiText;
+
+    public bool IsInConversation { get; set; } = false;
 
     void Start()
     {
@@ -391,6 +384,8 @@ public class SimAgent : MonoBehaviour
             }
             yield return null;
         }
+
+        UnityTcpListener.SendToAgent(gameObject.name, $"ARRIVED:{gameObject.name}");
     }
 
     public void Interact(string method, string targetName, string color=null)
@@ -428,7 +423,6 @@ public class SimAgent : MonoBehaviour
         StopAllCoroutines();
     }
 }
-
 ```
 
 ## UnityMovementController.cs
@@ -923,6 +917,17 @@ using UnityEngine.Networking;
 using System.Collections;
 using System.Text;
 using System.Collections.Generic;
+using System;
+
+[System.Serializable]
+public class ConversationRequest
+{
+    public string initiator;
+    public string receiver;
+    public string initLoc;
+    public string recLoc;
+    public string context;
+}
 
 public class SimulationStarter : MonoBehaviour
 {
@@ -956,6 +961,9 @@ public class SimulationStarter : MonoBehaviour
         StartCoroutine(HealthCheck());
     }
 
+    /// <summary>
+    /// Checks if the Python server is running.
+    /// </summary>
     IEnumerator HealthCheck()
     {
         using (UnityWebRequest request = UnityWebRequest.Get(backendUrl + "/health"))
@@ -1021,7 +1029,11 @@ public class SimulationStarter : MonoBehaviour
     {
         string url = $"{backendUrl}/generate_conversation";
 
-        // Create clean JSON payload
+        GameObject initObj = GameObject.Find(initiator);
+        GameObject recObj = GameObject.Find(receiver);
+        SimAgent initAgent = initObj.GetComponent<SimAgent>();
+        SimAgent recAgent = recObj.GetComponent<SimAgent>();
+
         ConversationRequest payload = new ConversationRequest
         {
             initiator = initiator,
@@ -1032,6 +1044,8 @@ public class SimulationStarter : MonoBehaviour
         };
 
         string json = JsonUtility.ToJson(payload);
+        initAgent.IsInConversation = true;
+        recAgent.IsInConversation = true;
 
         using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
         {
@@ -1049,39 +1063,28 @@ public class SimulationStarter : MonoBehaviour
                 string responseJson = request.downloadHandler.text;
                 //Debug.Log($"[SimStarter] Conversation Generated: {responseJson}");
 
-                try
+                ConversationResponse resp = JsonUtility.FromJson<ConversationResponse>(responseJson);
+                if (resp != null && resp.dialogue != null && resp.dialogue.Count != 0)
                 {
-                    ConversationResponse resp = JsonUtility.FromJson<ConversationResponse>(responseJson);
-                    if (resp != null && resp.dialogue != null)
-                    {
-                        lastConversationLog = string.Join("\n", resp.dialogue);
-                    }
-                }
-                catch
+                    string body = string.Join("\n", resp.dialogue);
+                    lastConversationLog = body + "\n--- END ---";
+
+                } else
                 {
-                    lastConversationLog = "Error parsing dialogue: " + responseJson;
+                    lastConversationLog = "No Conversation";
                 }
 
-                // TODO: Here you would parse the responseJson into a C# object
-                // and pass it to your Dialogue UI to display the bubbles.
-                // Example: DialogueManager.Instance.ShowDialogue(responseJson);
+                yield return new WaitForSeconds(4.0f);
             }
             else
             {
                 Debug.LogError($"[SimStarter] Conversation Request Failed: {request.error}\nResponse: {request.downloadHandler.text}");
             }
         }
-    }
-}
 
-[System.Serializable]
-public class ConversationRequest
-{
-    public string initiator;
-    public string receiver;
-    public string initLoc;
-    public string recLoc;
-    public string context;
+        if (initAgent != null) initAgent.IsInConversation = false;
+        if (recAgent != null) recAgent.IsInConversation = false;
+    }
 }
 
 ```
@@ -1115,7 +1118,7 @@ public class DebugControlPanel : EditorWindow
 
     private string newAgentName = "NewAgent";
     private string[] locations = new string[] {
-        "House_Samson", "House_Jimmy", "Workshop", "River", "Garden", "TownSquare"
+        "House_Samson", "House_Jimmy", "Workshop", "River", "Garden", "Table_Samson", "Storage_Samson", "Table_Jimmy", "Storage_Jimmy", "Table_Workshop"
     };
 
     [MenuItem("FYP/Debug Control Panel")]
@@ -1217,9 +1220,26 @@ public class DebugControlPanel : EditorWindow
             return;
         }
 
+        EditorGUILayout.BeginVertical("box");
+        GUILayout.Label("Conversation Visualizer", EditorStyles.boldLabel);
+
+        ConversationVisualizer viz = FindObjectOfType<ConversationVisualizer>();
+        if (viz != null)
+        {
+            bool status = viz.enabled;
+            bool newStatus = EditorGUILayout.Toggle("Show Boxes", status);
+            if (status != newStatus) viz.enabled = newStatus;
+        }
+        else
+        {
+            GUILayout.Label("No Visualizer Found in Scene");
+        }
+        EditorGUILayout.EndVertical();
+
+        EditorGUILayout.Space();
+
         EditorGUILayout.BeginHorizontal();
 
-        // Count selected
         var selectedAgents = agentList.Where(a => a.isSelected).ToList();
         string buttonText = $"Interact ({selectedAgents.Count})";
 
@@ -1240,6 +1260,24 @@ public class DebugControlPanel : EditorWindow
             foreach (var agent in selectedAgents)
             {
                 MoveAgent(agent.id, locations[agent.locationIndex]);
+            }
+        }
+
+        if (GUILayout.Button("TEST CHAT (Sim)", GUILayout.Height(30)))
+        {
+            if (selectedAgents.Count < 2)
+            {
+                Debug.LogWarning("[Debug] Select 2 agents to test chat visuals.");
+            }
+            else
+            {
+                GameObject a1 = GameObject.Find(selectedAgents[0].id);
+                GameObject a2 = GameObject.Find(selectedAgents[1].id);
+                if (a1 && a2)
+                {
+                    a1.GetComponent<SimAgent>().showDialogue("Hello!");
+                    a2.GetComponent<SimAgent>().showDialogue("Hi there!");
+                }
             }
         }
 
@@ -1288,6 +1326,148 @@ public class DebugControlPanel : EditorWindow
         }
     }
 }
+```
+
+## ConvVisualizer.cs
+
+```csharp
+
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+public class ConversationVisualizer : MonoBehaviour
+{
+    public float convTrigger = 3.0f;
+    public GameObject boxPrefab;
+    public Canvas canvas;
+
+    private Dictionary<string, GameObject> activeBoxes = new Dictionary<string, GameObject>();
+    private SimAgent[] agents;
+
+    private float timer = 0f;
+    private int dotCount = 0;
+
+    void Start()
+    {
+        agents = FindObjectsOfType<SimAgent>();
+    }
+
+    void Update()
+    {
+        if (agents == null || agents.Length == 0) return;
+
+        timer += Time.deltaTime;
+        if (timer > 0.5f)
+        {
+            dotCount = (dotCount + 1) % 4;
+            timer = 0f;
+        }
+
+        HashSet<string> currentPairs = new HashSet<string>();
+        checkPair(currentPairs);
+        removePair(currentPairs);
+
+        foreach (var box in activeBoxes.Values)
+        {
+            if (box != null && box.activeSelf)
+            {
+                updateButtonText(box);
+            }
+        }
+    }
+
+    void checkPair(HashSet<string> currentPairs)
+    {
+        for (int i = 0; i < agents.Length; i++)
+        {
+            for (int j = i + 1; j < agents.Length; j++)
+            {
+                SimAgent a1 = agents[i];
+                SimAgent a2 = agents[j];
+
+                if (a1.IsInConversation && a2.IsInConversation)
+                {
+                    float dist = Vector3.Distance(a1.transform.position, a2.transform.position);
+                    if (dist < convTrigger)
+                    {
+                        string pairId = GetPairId(a1, a2);
+                        currentPairs.Add(pairId);
+                        UpdateBox(pairId, a1, a2);
+                    }
+                }
+            }
+        }
+    }
+
+    void removePair(HashSet<string> currentPairs)
+    {
+        List<string> toRemove = new List<string>();
+        foreach (var pairId in activeBoxes.Keys)
+        {
+            if (!currentPairs.Contains(pairId)) toRemove.Add(pairId);
+        }
+
+        foreach (var id in toRemove)
+        {
+            if (activeBoxes[id] != null) Destroy(activeBoxes[id]);
+            activeBoxes.Remove(id);
+        }
+    }
+
+    string GetPairId(SimAgent a1, SimAgent a2)
+    {
+        return (string.Compare(a1.name, a2.name) < 0)
+            ? $"{a1.name}_{a2.name}"
+            : $"{a2.name}_{a1.name}";
+    }
+
+    void UpdateBox(string pairId, SimAgent a1, SimAgent a2)
+    {
+        GameObject box;
+        if (!activeBoxes.TryGetValue(pairId, out box) || box == null)
+        {
+            if (boxPrefab != null && canvas != null)
+            {
+                box = Instantiate(boxPrefab, canvas.transform);
+                activeBoxes[pairId] = box;
+
+                Button btn = box.GetComponent<Button>() ?? box.GetComponentInChildren<Button>();
+                if (btn != null)
+                {
+                    btn.onClick.RemoveAllListeners();
+                    btn.onClick.AddListener(() => OnConvButtonClicked(pairId, a1, a2));
+                }
+            }
+        }
+
+        if (box == null) return;
+
+        if (!box.activeSelf) box.SetActive(true);
+
+        box.transform.position = (a1.transform.position + a2.transform.position) / 2f;
+        updateButtonText(box);
+    }
+
+    void updateButtonText(GameObject box)
+    {
+        string textStr = "";
+        if (dotCount == 1) textStr = ".";
+        else if (dotCount == 2) textStr = "..";
+        else if (dotCount == 3) textStr = "...";
+
+        TMP_Text tmpText = box.GetComponentInChildren<TMP_Text>();
+        tmpText.text = textStr;
+    }
+
+    void OnConvButtonClicked(string pairId, SimAgent a1, SimAgent a2)
+    {
+        Debug.Log($"[ConvVisualizer] Clicked conversation between {a1.name} and {a2.name}");
+        // TODO: Implement trigger logic here later
+    }
+}
+
 ```
 
 ## Environment.cs
@@ -1405,4 +1585,133 @@ public class AreaDetector : MonoBehaviour
         }
     }
 }
+```
+
+## DialogueManager.cs
+
+```csharp
+using UnityEngine;
+using TMPro;
+using UnityEngine.UI;
+using System.Collections.Generic;
+using UnityEngine.EventSystems;
+
+public class DialogueManager : MonoBehaviour, IPointerClickHandler
+{
+    public static DialogueManager Instance;
+
+    public GameObject dialoguePanel;
+    public TMP_Text nameText;
+    public TMP_Text dialogueText;
+    public Image portraitImage;
+
+    private List<string> dialogueLines = new List<string>();
+    private int currentIndex = -1;
+    private bool isWaitingForData = false;
+
+    void Awake()
+    {
+        Instance = this;
+        dialoguePanel.SetActive(false);
+    }
+
+    private float timer = 0f;
+    private int dotCount = 0;
+    private Coroutine loadingCoroutine;
+
+    void Update()
+    {
+        if (isWaitingForData)
+        {
+            timer += Time.deltaTime;
+            if (timer >= 0.5f)
+            {
+                timer = 0f;
+                dotCount = (dotCount % 3) + 1;
+                UpdateLoadingText();
+            }
+        }
+    }
+
+    void UpdateLoadingText()
+    {
+        string dots = new string('.', dotCount);
+        nameText.text = dots;
+        dialogueText.text = "Loading conversation" + dots;
+    }
+
+    public void StartDialogueSession()
+    {
+        dialoguePanel.SetActive(true);
+        dialogueLines.Clear();
+        currentIndex = -1;
+        isWaitingForData = true;
+        dotCount = 0;
+        timer = 0f;
+        UpdateLoadingText();
+    }
+
+    public void UpdateDialogueData(List<string> lines)
+    {
+        if (lines == null || lines.Count == 0) return;
+        dialogueLines = lines;
+        isWaitingForData = false;
+        if (currentIndex == -1)
+        {
+            currentIndex = 0;
+            DisplayLine();
+        }
+    }
+
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        if (isWaitingForData || dialogueLines == null || dialogueLines.Count == 0) return;
+
+        if (currentIndex < dialogueLines.Count - 1)
+        {
+            currentIndex++;
+            DisplayLine();
+        }
+        else
+        {
+            dialoguePanel.SetActive(false);
+            currentIndex = -1;
+        }
+    }
+
+    void DisplayLine()
+    {
+        if (currentIndex < 0 || currentIndex >= dialogueLines.Count)
+        {
+            return;
+        }
+
+        string rawLine = dialogueLines[currentIndex];
+        if (rawLine == null) return;
+        if (rawLine.Contains(":"))
+        {
+            string[] split = rawLine.Split(new[] { ':' }, 2);
+            string speaker = split[0].Trim().Trim('"');
+            nameText.text = speaker;
+            dialogueText.text = split[1].Trim();
+            UpdatePortrait(speaker);
+        }
+        else
+        {
+            dialogueText.text = rawLine;
+        }
+    }
+
+    void UpdatePortrait(string speakerName)
+    {
+        Sprite loadedPortrait = Resources.Load<Sprite>($"Portraits/{speakerName}");
+
+        if (loadedPortrait != null)
+        {
+            portraitImage.sprite = loadedPortrait;
+            portraitImage.gameObject.SetActive(true);
+        }
+    }
+}
+
 ```

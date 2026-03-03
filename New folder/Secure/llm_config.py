@@ -21,11 +21,12 @@ def _build_client(model_name: str, temperature: float, max_tokens: int = 4096):
         max_retries=2,
     )
 
-dialogue_llm = _build_client("openai/gpt-4.1-mini", 0.5)
-#dialogue_llm = _build_client("meta/Meta-Llama-3.1-8B-Instruct", 0.3)
+#dialogue_llm = _build_client("openai/gpt-4.1-mini", 0.5)
+dialogue_llm = _build_client("meta/Meta-Llama-3.1-8B-Instruct", 0.3)
 
 #skill_llm = _build_client("meta/Meta-Llama-3.1-8B-Instruct", 0.3)
-skill_llm = _build_client("openai/gpt-4.1-nano", 0.3)
+skill_llm = _build_client("openai/gpt-4.1-mini", 0.3)
+#skill_llm = _build_client("openai/gpt-4.1-nano", 0.3)
 
 planner_llm = _build_client("openai/gpt-4o-mini", 0.3, 2048)
 

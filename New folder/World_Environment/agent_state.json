@@ -1,13 +1,13 @@
 {
-    "time": "Day 1, 01:40",
+    "time": "Day 0, 13:42",
     "agents": {
         "Jimmy": {
-            "action": "Jimmy is resting at home. @ World/House_Jimmy/House_Jimmy",
+            "action": "Jimmy is resting at home.",
             "interaction_area": "House_Jimmy",
             "interaction_object": "House_Jimmy"
         },
         "Samson": {
-            "action": "Samson is resting at home. @ World/House_Samson/House_Samson",
+            "action": "Samson is resting at home.",
             "interaction_area": "House_Samson",
             "interaction_object": "House_Samson"
         }
