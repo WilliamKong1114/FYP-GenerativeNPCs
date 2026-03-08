@@ -13,18 +13,14 @@
             "occupied_by": null
         },
         "Bed_Jimmy": {
-            "state": "empty",
-            "occupied_by": null
+            "state": "occupied",
+            "occupied_by": "Jimmy"
         },
         "Storage_Jimmy": {
             "state": "empty",
             "occupied_by": null
         },
         "Hearth_Jimmy": {
-            "state": "empty",
-            "occupied_by": null
-        },
-        "unknown": {
             "state": "empty",
             "occupied_by": null
         }

@@ -12,7 +12,7 @@ from World_Environment.simulation_clock import SimulationClock
 load_dotenv()
 
 CONVERSATION_COOLDOWN = 200
-PROBABILITY_TO_TALK = 0.7
+PROBABILITY_TO_TALK = 0.8
 MIN_CONVERSATION_TURNS = 6
 MAX_TERNS = 20
 EXTRA_TURNS_PER_PARTICIPANT = 2
@@ -111,45 +111,54 @@ class ConversationManager:
     def summarize_conversation_and_store(self, user_id: str, raw_log: str = None, log_id: str = None) -> str:
         if self.debug_mode:
             print(f"(debug) summary skipped")
-            return raw_log or ""
+            return ""
         
-        import execute_plan
-        execute_plan.memory_cache.clear()
-        convo_length = 100
+        #execute_plan.memory_cache.clear()
         
-        time_context = ""
-        current_time_str = ""
-        if self.clock:
-            current_time_str = self.clock.get_time_string()
-            time_context = f"Record Time: {current_time_str}\n"
+        #time_context = ""
+        #current_time_str = ""
+        #if self.clock:
+            #current_time_str = self.clock.get_time_string()
+            #time_context = f"Record Time: {current_time_str}\n"
 
         system = {
             "role": "system",
             "content": 
-                f"You are {user_id}.\n"
-                f"{time_context}"
-                f"You are trying to summarize the conversation you just had into 2 to 4 reasonable amount of sentence (total <={convo_length} words) to be stored as your long-term memory.\n"
-                "The summary will be accessed by your future self to recap what is going on, and what have been mentioned.\n"
-                "The summary must capture:\n"
-                "1. your own revealed plans, intent, or identity traits.\n"
+                #f"You are {user_id}.\n"
+                #f"{time_context}"
+                "You are trying to summarize the conversation with a list of 3 to 5 items, with each item must contains 10 to 15 words, with each include the name of the person.\n"
+                "The summary will be accessed by your future self to recap what is going on, what have been mentioned and what needs to be done.\n"
+                "The summary list must capture the following if any:\n"
+                "1. Your own revealed plans, intent, or identity traits.\n"
                 "2. Key information, news, or observations you gathered about the conversation partner.\n"
                 "3. The main outcome or topic of the interaction.\n"
-                "Output only the sentence — no explanations or filler.\n"
+                "You also need to provide an importance rating (1-10) where 1 is purely mundane (e.g., brushing teeth, making bed) and 10 is extremely poignant, life-changing (e.g., getting married), rate the likely poignancy of the summarized memory.\n"
+                "Output MUST be a valid JSON object with the following structure:\n"
+                "{\"summaries\": ["
+                "{\"description\": \"Samson is collaborating with Jimmy on designing garden benches using willow bend and ash wood\", \"importance\": 5},"
+                "{\"description\": \"Samson and Jimmy are planning to meet at the workshop to finalize designs and select materials\", \"importance\": 7}"
+                "]}"
         }
         user_msg = {"role": "user", "content": f"{raw_log}"}
-
         resp = self.llm.invoke([system, user_msg])
-        summary = getattr(resp, "content", None) or str(resp)
 
-        if current_time_str:
-            summary = f"[{current_time_str}] {summary}"
+        data = json.loads(resp.content)
+        summaries = data.get("summaries")
 
-        manage_data.add_memories([summary], user_id=user_id)
-        self.memory_manager.save_summary(user_id, summary, log_id=log_id)
+        last_summary = ""
+        current_game_hours = self.clock.get_sim_hour()
 
-        #print(f"--- Conversation summary for {user_id} saved ---")
-        print(f"[{user_id}]: {summary}")
-        return summary
+        for item in summaries:
+            description = item.get("description")
+            importance = item.get("importance", 5)
+
+            manage_data.add_memories([description], user_id=user_id, importance=importance, game_hour=current_game_hours)
+            self.memory_manager.save_summary(user_id=user_id, summary=description, importance=importance, log_id=log_id)
+
+            print(f"[{user_id}]: {description} (Imp: {importance})")
+            last_summary += f"- {description}\n"
+
+        return last_summary
 
     def check_conversation_status(self, sender_id,dialogue_history):
         if len(dialogue_history) < MIN_CONVERSATION_TURNS:

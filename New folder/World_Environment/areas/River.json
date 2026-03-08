@@ -1,6 +1,6 @@
 {
     "objects": {
-        "unknown": {
+        "River": {
             "state": "empty",
             "occupied_by": null
         }

@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from World_Environment.simulation_clock import SimulationClock
 from conversation_manager import ConversationManager
 from execute_plan import get_graph
-from World_Environment.area_state_manager import area_system
+from World_Environment.area_state_manager import AreaSystem
 
 load_dotenv()
 app = Flask(__name__)
@@ -25,7 +25,7 @@ def update_area():
     if not all([agent_id, area, status]):
         return jsonify({"status": "error", "message": f"Missing fields: {agent_id, area, status}"}), 400
     
-    area_system.get_manager(area).set_agent_in_area(agent_id, area, status)
+    AreaSystem.get_manager(area).set_agent_in_area(agent_id, area, status)
     
     return jsonify({"status": "success", "message": f"Updated {agent_id} location to {area} with status {status}"})
 

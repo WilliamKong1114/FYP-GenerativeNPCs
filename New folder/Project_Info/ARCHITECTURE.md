@@ -46,12 +46,14 @@ New folder/
 ## Core Execution Loop (`execute_plan.py`)
 
 ### Startup
+
 1. Load agents from `agent_state_manager` (persona, home node)
 2. Connect `UnityClient` on port 5005
 3. Start `AreaSystem` TCP listener on port 5006 (receives area enter/exit from Unity)
 4. Init `ConversationManager`, `ThreadPoolExecutor`
 
 ### Daily Cycle
+
 ```
 is_new_day() triggers:
   ├─ get_plan(agent_id)        → 3-level LLM plan → ~30 (time, action) steps
@@ -65,6 +67,7 @@ Between 6:00–22:00 sim time (every 1 real second):
 ```
 
 ### `execute_agent_action()` — one agent, one step
+
 ```
 1. find_target(action, tree)     → (target_name, action_desc, area_name, obj_name)
 2. client.move_to()              → send to Unity, wait for "ARRIVED:{agent_id}"
@@ -78,6 +81,7 @@ Between 6:00–22:00 sim time (every 1 real second):
 ```
 
 ### Key In-Memory Dict: `agent_executions`
+
 ```python
 {
   "agent_id": {
@@ -115,7 +119,9 @@ Parsed in execute_plan.py:
 ## Environment System
 
 ### World Tree (`environment_tree.py`)
+
 Hierarchy stored in `places.db`:
+
 ```
 World (root)
 ├─ House_Samson (area)  → Bed, Table, Hearth, Storage (objects)
@@ -127,12 +133,15 @@ World (root)
 ```
 
 **Target finding** (`find_suitable_location`):
+
 1. Check `action_config.json` verb→target mappings
 2. Find empty matching node in tree
 3. LLM fallback if no match (`routing_llm = Phi-4`)
 
 ### Area State (`area_state_manager.py`)
+
 Each area has its own JSON file (`areas/Workshop.json`):
+
 ```json
 {
   "agents": ["Samson"],
@@ -141,19 +150,22 @@ Each area has its own JSON file (`areas/Workshop.json`):
   }
 }
 ```
+
 - `AreaStateManager` uses `threading.RLock` per area
 - `AreaSystem` singleton caches managers, runs TCP listener for Unity signals
 - Unity sends `[agent_id, area_name, "enter"/"exit"]` on agent movement
 
 ### Agent State (`agent_state_manager.py`)
+
 Single JSON (`agent_state.json`):
+
 ```json
 {
   "agents": {
     "Samson": {
       "action": "reading a book @ Library: Table_Library",
-      "interaction_area": "Library",
-      "interaction_object": "Table_Library",
+      //"interaction_area": "Library",
+      //"interaction_object": "Table_Library",
       "persona": "...",
       "home_node": "House_Samson"
     }
@@ -162,6 +174,7 @@ Single JSON (`agent_state.json`):
 ```
 
 ### Simulation Clock (`simulation_clock.py`)
+
 ```
 time_scale = 300  →  1 real second = 5 simulated hours
 Day runs 6:00–22:00 sim time ≈ 3.2 real seconds
@@ -174,14 +187,15 @@ API: get_sim_time(), get_sim_hour(), get_time_string(), is_new_day()
 
 ### SQLite (`agent_memory.db`) — `agent_memory.py`
 
-| Table | Purpose | Key Columns |
-|-------|---------|-------------|
-| `conversation_logs` | Raw dialogue transcripts | participants (JSON), log_string, place, ts |
-| `summaries` | LLM-generated conversation summaries | user_id, summary, importance (1–10), log_id |
-| `observation` | LLM-generated perceptual records | user_id, description, place, ts |
-| `reflection` | (Reserved, same minimal schema as observation) | user_id, description |
+| Table               | Purpose                                        | Key Columns                                 |
+| ------------------- | ---------------------------------------------- | ------------------------------------------- |
+| `conversation_logs` | Raw dialogue transcripts                       | participants (JSON), log_string, place, ts  |
+| `summaries`         | LLM-generated conversation summaries           | user_id, summary, importance (1–10), log_id |
+| `observation`       | LLM-generated perceptual records               | user_id, description, place, ts             |
+| `reflection`        | (Reserved, same minimal schema as observation) | user_id, description                        |
 
 `AgentMemoryManager` methods:
+
 - `add_conversation_log(participants, log_string, place)`
 - `add_observation(observer_id, obs_string, place)`
 - `get_recent_observations(user_id, limit=5)`
@@ -191,14 +205,15 @@ API: get_sim_time(), get_sim_hour(), get_time_string(), is_new_day()
 
 ### ChromaDB (`chroma_db/`) — `manage_data.py`
 
-| Collection | Purpose | Key Metadata |
-|------------|---------|--------------|
-| `memories` | Long-term semantic memories | user_id, importance, created_at (game_hour) |
-| `user_info` | Agent persona/background | user_id, type |
-| `skills` | Executable skill code | name, code (Python string) |
-| `conversations` | (Rarely used directly) | user_id |
+| Collection      | Purpose                     | Key Metadata                                |
+| --------------- | --------------------------- | ------------------------------------------- |
+| `memories`      | Long-term semantic memories | user_id, importance, created_at (game_hour) |
+| `user_info`     | Agent persona/background    | user_id, type                               |
+| `skills`        | Executable skill code       | name, code (Python string)                  |
+| `conversations` | (Rarely used directly)      | user_id                                     |
 
 **Memory retrieval scoring:**
+
 ```
 score = (0.5 × recency) + (0.3 × importance) + (0.2 × relevance)
 recency   = 0.99 ^ (current_game_hour − created_at)
@@ -226,6 +241,7 @@ Store:  SQLite observation table (user_id, description, place, createdOn, ts)
 ## Conversation System (`conversation_manager.py`)
 
 ### Trigger conditions
+
 ```
 CONVERSATION_COOLDOWN = 200s (real time, per pair)
 PROBABILITY_TO_TALK   = 0.8
@@ -233,6 +249,7 @@ Both agents must not already be chatting (chat_lock)
 ```
 
 ### Dialogue generation
+
 ```
 LLM: dialogue_llm = Meta-Llama-3.1-8B-Instruct
 MIN_CONVERSATION_TURNS = 6
@@ -248,6 +265,7 @@ Each turn:
 ```
 
 ### Recording
+
 ```
 record_conversation():
   1. Serialize to log_string: "Agent1: text; Agent2: text; ..."
@@ -259,6 +277,7 @@ record_conversation():
 ```
 
 ### Conversation Visualizer (Unity side)
+
 ```
 Conversation ends → button appears in Unity
 User clicks → Unity sends "request_conversation" command
@@ -292,15 +311,16 @@ Execution flow:
 
 Port 5005 — Python → Unity commands (JSON over TCP, one connection per agent):
 
-| Method | `action` field | Purpose |
-|--------|---------------|---------|
-| `move_to(target, content, desc, agent_id)` | `"move_to"` | Move agent; optionally wait for `"ARRIVED:{id}"` |
-| `interact(target, method, params, agent_id)` | `"interact"` | Call Unity object method (Till, Water, change_color) |
-| `set_chatting(agent_id, "start"/"stop")` | `"set_chatting"` | Toggle chat animation |
-| `update_dialogue(agent_id, lines)` | `"update_dialogue"` | Push dialogue lines to UI panel |
-| `stop(agent_id)` | `"stop"` | Halt agent animation |
+| Method                                       | `action` field      | Purpose                                              |
+| -------------------------------------------- | ------------------- | ---------------------------------------------------- |
+| `move_to(target, content, desc, agent_id)`   | `"move_to"`         | Move agent; optionally wait for `"ARRIVED:{id}"`     |
+| `interact(target, method, params, agent_id)` | `"interact"`        | Call Unity object method (Till, Water, change_color) |
+| `set_chatting(agent_id, "start"/"stop")`     | `"set_chatting"`    | Toggle chat animation                                |
+| `update_dialogue(agent_id, lines)`           | `"update_dialogue"` | Push dialogue lines to UI panel                      |
+| `stop(agent_id)`                             | `"stop"`            | Halt agent animation                                 |
 
 Port 5006 — Unity → Python area signals (TCP, `AreaSystem` listener):
+
 ```
 Unity sends: [agent_id, area_name, "enter"/"exit"]
 Python: updates areas/{area_name}.json agents list
@@ -312,12 +332,12 @@ Python: updates areas/{area_name}.json agents list
 
 All models via Azure AI (`https://models.github.ai/inference`), auth from `GITHUB_TOKEN` env var:
 
-| Instance | Model | Used For |
-|----------|-------|----------|
-| `dialogue_llm` | Meta-Llama-3.1-8B-Instruct | NPC dialogue generation |
-| `skill_llm` | gpt-4.1-mini | Skill code gen, observations, summaries |
-| `planner_llm` | gpt-4o-mini | Daily plan generation |
-| `routing_llm` | Microsoft Phi-4 | Target location selection fallback |
+| Instance       | Model                      | Used For                                |
+| -------------- | -------------------------- | --------------------------------------- |
+| `dialogue_llm` | Meta-Llama-3.1-8B-Instruct | NPC dialogue generation                 |
+| `skill_llm`    | gpt-4.1-mini               | Skill code gen, observations, summaries |
+| `planner_llm`  | gpt-4o-mini                | Daily plan generation                   |
+| `routing_llm`  | Microsoft Phi-4            | Target location selection fallback      |
 
 All: temperature=0.3, timeout=10s, max_retries=2
 

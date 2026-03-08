@@ -5,6 +5,7 @@ import threading
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AREAS_DIR = os.path.join(BASE_DIR, "areas")
+AGENT_STATE_DIR = os.path.join(BASE_DIR, "agent_state.json")
 
 class AreaStateManager:
     def __init__(self, area_name):
@@ -101,7 +102,7 @@ class AreaSystem:
             self.listener_socket.close()
             self.listener_socket = None
 
-    def reset_all(self):
+    def reset_area(self):        
         if not os.path.exists(AREAS_DIR):
             return
         
@@ -119,4 +120,17 @@ class AreaSystem:
                         mgr.save_state()
             print("[AreaManager] All area agent lists and object states have been reset.")
 
-area_system = AreaSystem()
+        if not os.path.exists(AGENT_STATE_DIR):
+            return
+
+        with open(AGENT_STATE_DIR, 'r') as f:
+            agent_data = json.load(f)
+
+        agents = agent_data.get("agents")
+        for agent_id, agent_info in agents.items():
+            home_node = agent_info.get("home_node")
+            home_area = agent_info.get("home_area")
+            if home_node and home_area:
+                mgr = self.get_manager(home_area)
+                with mgr.lock:
+                    mgr.set_area_state(home_node, "occupied", agent_id)

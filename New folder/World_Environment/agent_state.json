@@ -1,15 +1,31 @@
 {
-    "time": "Day 0, 13:42",
     "agents": {
         "Jimmy": {
-            "action": "Jimmy is resting at home.",
-            "interaction_area": "House_Jimmy",
-            "interaction_object": "House_Jimmy"
+            "persona": [
+                "Friendly, outgoing.",
+                "Jimmy is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge.",
+                "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons.",
+                "He is boring and don't like to social with others.",
+                "He has a small workshop where he crafts simple furniture and tools.",
+                "Jimmy is being focused by his parent on learning new skills woodworking skills for better use."
+            ],
+            "home_node": "Bed_Jimmy",
+            "home_area": "House_Jimmy",
+            "action": "Jimmy is resting at home."
         },
         "Samson": {
-            "action": "Samson is resting at home.",
-            "interaction_area": "House_Samson",
-            "interaction_object": "House_Samson"
+            "persona": [
+                "Dull, boring.",
+                "Samson is a 53 year old villager who has spent his entire life in a modest medieval settlement nestled between rolling pasturelands and a river. Behind the village lie dense woodlands where he often walks to gather herbs and fallen branches.",
+                "He was raised in a family known for their skill in maintaining tools and tending livestock, and from a young age he learned patience, precision, and the value of steady work. Over decades, Edric became respected for his reliability and quiet wisdom.",
+                "He enjoys repairing equipment for farmers, carving wooden utensils and small household items, and preparing simple herbal mixtures he learned from an elderly healer many years ago. His workshop, an aging shed filled with tools, scraps of wood, and half finished projects, is where he spends most afternoons.",
+                "His normal daily routine includes checking on neighbors' tools that need fixing, tending a small patch of vegetables behind his home, taking quiet walks in the woods to gather materials, and chatting with travelers to hear news of faraway lands.",
+                "In the evenings, he often sits by the communal fire, sharing stories or offering advice to younger villagers."
+            ],
+            "home_node": "Bed_Samson",
+            "home_area": "House_Samson",
+            "action": "Samson is resting at home."
         }
-    }
+    },
+    "time": "Day 0, 14:00"
 }

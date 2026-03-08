@@ -15,32 +15,22 @@ def add_user_info(user_id: str, info: str, path: str = "./chroma_db") -> str:
     col.upsert(ids=[user_id], documents=[info], metadatas=[{"type": "user_info", "user_id": user_id, "created_at": datetime.datetime.utcnow().isoformat()}])
     return f"Created user info for {user_id}"
 
-def add_memories(docs: List[str], user_id: str = "default_user", path: str = "./chroma_db") -> List[str]:
+def add_memories(docs: List[str], user_id: str = "default_user", path: str = "./chroma_db", importance: int = 5, game_hour: float = 0) -> List[str]:
     client = get_client(path)
     col = client.get_or_create_collection("memories")
     if not docs:
         return []
 
     ids = [str(uuid.uuid4()) for _ in docs]
-    metas = [{"type": "memory", "user_id": user_id} for _ in docs]
+    metas = [{
+        "type": "memory", 
+        "user_id": user_id,
+        "importance": importance,
+        "created_at": game_hour,
+        "modified_on": game_hour
+    } for _ in docs]
     col.add(ids=ids, documents=docs, metadatas=metas)
     return ids
-
-def list_conversations(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    logs = memory_manager.get_recent_conversation_logs(user_id, limit=1)
-    if not logs:
-        return []
-        
-    raw_log = logs[0][1]
-    results = []
-    if raw_log:
-        turns = raw_log.split("; ")
-        for turn in turns:
-            if ": " in turn:
-                speaker, text = turn.split(": ", 1)
-                text = text.strip('"')
-                results.append({"role": speaker, "text": text})
-    return results
 
 def delete_user(user_id: str, path: str = "./chroma_db") -> str:
     client = get_client(path)
@@ -78,8 +68,8 @@ def delete_conversations_for_user(user_id: str, path: str = "./chroma_db") -> st
 
 def list_users_with_memories(path: str = "./chroma_db") -> List[Dict[str, Any]]:
     client = get_client(path)
-    user_col = client.get_collection("user_info")
-    mem_col = client.get_collection("memories")
+    user_col = client.get_or_create_collection("user_info")
+    mem_col = client.get_or_create_collection("memories")
 
     users_data = user_col.get()
     user_ids = users_data.get("ids", [])
@@ -115,15 +105,33 @@ def list_users_with_memories(path: str = "./chroma_db") -> List[Dict[str, Any]]:
 
     return results
 
+def list_users(path: str = "./chroma_db") -> List[Dict[str, Any]]:
+    client = get_client(path)
+    user_col = client.get_or_create_collection("user_info")
+
+    users_data = user_col.get()
+    user_ids = users_data.get("ids", [])
+    user_docs = users_data.get("documents", [])
+
+    results: List[Dict[str, Any]] = []
+    for idx, uid in enumerate(user_ids):
+        desc = user_docs[idx]
+        results.append({
+            "user_id": uid,
+            "description": desc
+        })
+
+    return results
+
 def main() -> None:
     menu_options = {
         "1": {
-            "description": "Create new memory",
+            "description": "Create new memory for a user",
             "function": lambda: add_memories([input("Memory text: ")], user_id=input("User id (default: default_user): ") or "default_user"),
             "print_result": lambda ids: print("Added memory ids:", ids),
         },
         "2": {
-            "description": "Delete all memories for a user",
+            "description": "Clear memories for a user",
             "function": lambda: delete_memories_for_user(input("User id: ")),
             "print_result": lambda result: print(result),
         },
@@ -145,16 +153,11 @@ def main() -> None:
             ),
         },
         "6": {
-            "description": "Show current user",
-            "function": lambda: memory_manager.user_id,
-            "print_result": lambda uid: print(f"Local agent user id: {uid}"),
+            "description": "List users",
+            "function": lambda: list_users(),
+            "print_result": lambda users: print("Users in DB: " + ", ".join([u['user_id'] for u in users]) if users else "No users found.")
         },
         "7": {
-            "description": "Show conversation",
-            "function": lambda: list_conversations(memory_manager.user_id),
-            "print_result": lambda convs: print(convs),
-        },
-        "8": {
             "description": "Set active user",
             "function": lambda: (memory_manager.__setattr__('user_id', (new_uid := input("Enter new user ID to activate: ").strip()) or None), new_uid)[1],
             "print_result": lambda new_uid: print(f"Active user set to: {new_uid}" if new_uid else "No user ID entered."),

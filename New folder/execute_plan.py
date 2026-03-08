@@ -17,15 +17,20 @@ from unity_comm import UnityClient
 from Secure.llm_config import skill_llm as llm
 from World_Environment.environment_tree import EnvironmentTree
 from World_Environment.agent_state_manager import AgentStateManager
-from World_Environment.area_state_manager import area_system
+from World_Environment.area_state_manager import AreaSystem
 from World_Environment.simulation_clock import SimulationClock
 from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
 from conversation_manager import ConversationManager
 from openai import APITimeoutError
 from chroma_client import get_client
+from agent_memory import AgentMemoryManager
 
 load_dotenv()
 chroma_client = get_client(path="./chroma_db")
+agent_state_manager = AgentStateManager()
+area_state_manager = AreaSystem()
+_obs_memory = AgentMemoryManager()
+clock = SimulationClock(time_scale=300) #1 real seconds = 5 simulated minutes
 
 @lru_cache(maxsize=2)
 def get_collection(name: str):
@@ -67,56 +72,65 @@ def getUserInfo(config: RunnableConfig):
     except Exception as e:
         return f"Error retrieving info: {str(e)}"
 
-CACHE_DURATION = 300
-memory_cache = TTLCache(maxsize=1024, ttl=CACHE_DURATION)
+#CACHE_DURATION = 300
+#memory_cache = TTLCache(maxsize=1024, ttl=CACHE_DURATION)
 
-def get_cached_memory(query: str, user_id: str):
-    key = f"{user_id}:{hashlib.sha256(query.encode('utf-8')).hexdigest()}"
-    try:
-        return memory_cache[key]        #If same query and user, return the cached memory context
-    except KeyError:
-        pass
-
+def get_memory(query: str, user_id: str):
     try:
         results = get_collection("memories").query(
             query_texts=[query],
-            n_results=3,
+            n_results=10,
             where={"user_id": user_id}
         )
-        if results["documents"] and len(results["documents"][0]) > 0:
-            memories = results["documents"][0]
-            memory_context = f"\nRelevant memories: {memories}"
-            #Return example: "\nRelevant memories: [memory1, memory2, memory3]"
-        else:
-            memory_context = ""
-        memory_cache[key] = memory_context
-        return memory_context
+
+        if not results["documents"] and len(results["documents"][0]) == 0:
+            return ""
+
+        documents = results["documents"][0]
+        metadatas = results["metadatas"][0]
+        distances = results["distances"][0]
+        current_hours = clock.get_sim_hour()
+        retrieved_memories = []
+
+        for i in range(len(documents)):
+            relevance = 1.0 / (1.0 + distances[i])
+            importance = metadatas[i].get("importance", 3) / 10.0
+
+            last_accessed = metadatas[i].get("modified_on", 0)
+            delta_t = max(0, current_hours - last_accessed)
+            recency = pow(0.99, delta_t)
+
+            final_score = (0.5 * recency) + (0.3 * importance) + (0.2 * relevance)
+            retrieved_memories.append((documents[i], final_score))
+
+        retrieved_memories.sort(key=lambda x: x[1], reverse=True)
+        top_memories = [m[0] for m in retrieved_memories[:3]]
+        
+        return f"\nRelevant memories: {top_memories}"
+        #Return example: "\nRelevant memories: [memory1, memory2, memory3]"
+
     except Exception as e:
         print(f"Error retrieving memory context: {e}")
         return ""
 
 def agent_node(state: State, config: RunnableConfig):
-    conf = config.get("configurable", {})
-    user_id = conf.get("user_id", "1")
-    agent_name = conf.get("agent_name", "Agent")
-    agent_persona = conf.get("agent_persona", "You are a villager.")
+    conf = config.get("configurable")
+    user_id = conf.get("user_id")
+    agent_name = conf.get("agent_name")
+    agent_persona = conf.get("agent_persona")
     
-    user_msgs, last_user_msg = [], ""
-    for m in state.get("messages", []) or []:
+    user_msgs = []
+    for m in state.get("messages", []):
         role = m.get("role") if isinstance(m, dict) else getattr(m, "role", "user")
         content = m.get("content") if isinstance(m, dict) else getattr(m, "content", "")
         
         if isinstance(content, str) and content.strip():
             text = content.strip()
-            norm_role = str(role).lower()
-            if norm_role not in ("system", "assistant", "ai"):
-                norm_role = "user"
-                last_user_msg = text
-            user_msgs.append({"role": norm_role, "content": text})
+            role = str(role).lower()
+            user_msgs.append({"role": role, "content": text})
 
-    if (last_user_msg or user_msgs):    
-        memory_context = get_cached_memory(last_user_msg or (user_msgs[-1]["content"] if user_msgs else ""), user_id)
-        #the latest user message is being qured to fetch relevant memories
+    if (user_msgs):    
+        memory_context = get_memory(user_msgs[-1]["content"], user_id)
     else:
         memory_context = ""
     
@@ -259,7 +273,6 @@ shutdown = False
 #state_lock = threading.Lock()
 chat_lock = threading.Lock()
 
-
 def signal_handler(sig, frame):
     global shutdown
     shutdown = True
@@ -281,33 +294,104 @@ def find_target(action: str, tree: EnvironmentTree, agent_data):
         obj_name = "unknown"
         area_name = target_node.name
     return target_name, action_desc, area_name, obj_name
-    
+
+def record_observation(agent_id: str, area_name: str, area_state: dict, agents_in_area: list, action: str, state_manager):
+    if area_name is None:
+        return
+
+    obj_lines = []
+    for name, info in area_state.items():
+        occ = info.get("occupied_by")
+        if info.get("state") == "occupied" and occ:
+            other_action = state_manager.get_agent_state().get(occ, {}).get("action", f"{occ} is present")
+            obj_lines.append(f"- {name}: in use by {occ} ({other_action})")
+        else:
+            obj_lines.append(f"- {name}: empty")
+
+    #others = [a for a in agents_in_area if a != agent_id]
+    #agent_lines = []
+    #for other in others:
+        #other_action = state_manager.get_agent_state().get(other, {}).get("action", f"{other} is present")
+        #agent_lines.append(f"- {other}: {other_action}")
+
+    user_content = (
+        f"Agent: {agent_id}\n"
+        f"About to perform: {action}\n"
+        f"Location: {area_name}\n"
+        f"Objects in area:\n" + ("\n".join(obj_lines) if obj_lines else "- none") + "\n"
+        #f"Other agents present:\n" + ("\n".join(agent_lines) if agent_lines else "- none")
+    )
+
+    system_msg = {
+        "role": "system",
+        "content": (
+            "You are writing an observation record for a simulated village agent."
+            "Write 1 concise sentences (under 15 words) describing what the agent perceives upon arriving at the location, in third-person. "
+            "Be natural, precise and specific — describe the state of objects related to the agent's action."
+            "Avoid sounding overly formal or poetic."
+            "Examples:\n"
+            "\"Samson occupied the table in workshop to craft items using bare materials.\"\n"
+            "\"The well is being used by Samson to draw some water.\""
+            "\"Samson is discussing the weather with Lily.\"\n"
+        )
+    }
+    user_msg = {"role": "user", "content": user_content}
+
+    try:
+        #game_hour = conv_manager.clock.get_sim_hour() if conv_manager.clock else 0.0
+        response = llm.invoke([system_msg, user_msg])
+        obs_text = response.content.strip()
+        _obs_memory.add_observation(agent_id, obs_text, area_name)
+        #print(f"[OBSERVATION] {obs_text}")
+    except Exception as e:
+        print(f"[OBSERVATION ERROR] {agent_id} at {area_name}: {e}")
+
 def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, agent_data, cur_time, conv_manager, agent_executions):
-    
+
+    prev_obj = agent_data.get("current_target")
+    prev_area = agent_data.get("current_area")
+
     target_result = find_target(action, tree, agent_data)
     target_name, action_desc, area_name, obj_name = target_result
     
     print(f"[{cur_time}] {agent_id}: {action} at {target_name}")
     client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
 
-    area_manager = area_system.get_manager(area_name)
+    if prev_obj and prev_area:
+        prev_area_manager = area_state_manager.get_manager(prev_area)
+        with prev_area_manager.lock:
+            prev_area_manager.set_area_state(prev_obj, "empty", None)
+
+    #Observe area state
+    area_manager = area_state_manager.get_manager(area_name)
+    with area_manager.lock:
+        area_manager.load_state()
+        obs_state = area_manager.get_area_state()
+        obs_agents = area_manager.get_agents_in_area()
+
+    record_observation(agent_id, area_name, obs_state, obs_agents, action, state_manager)
+
+    #Check and claim object within area if needed
     with area_manager.lock:
         area_manager.load_state()
         current_state = area_manager.get_area_state()
-        obj_info = current_state.get(obj_name, {})
+        obj_info = current_state.get(obj_name)
 
         if obj_info.get("state") == "occupied" and obj_info.get("occupied_by") != agent_id:
             print(f"[{cur_time}] {agent_id}: {obj_name} is occupied by {obj_info.get('occupied_by')}")
             return 3.0
 
         area_manager.set_area_state(obj_name, "occupied", agent_id)
+        agent_data["current_target"] = obj_name
+        agent_data["current_area"] = area_name
+        agent_data["prev_target"] = prev_obj
+        agent_data["prev_area"] = prev_area
 
     #time.sleep(2)
     #duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id, agent_data)
     
     with area_manager.lock:
         area_manager.load_state() 
-        area_manager.set_area_state(obj_name, "empty", None) # Action finished
         agents_nearby = area_manager.get_agents_in_area()
         potential_partners = [a for a in agents_nearby if a != agent_id]
 
@@ -347,30 +431,20 @@ def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, 
                 agent_executions[agent_id]["is_chatting"] = False
                 agent_executions[partner_id]["is_chatting"] = False
             
-        state_manager.set_agent_state(area_name, agent_id, action_desc, obj_name)
+        state_manager.set_agent_state(agent_id, action_desc)
     #return duration
   
 def main():
     agents_config = [
         {
-            "id": "Samson",
-            "persona": ("Innate traits: friendly, outgoing."
-            "Samson is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge."
-            "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons."
-            "He is boring and don't like to social with others."
-            "He has a small workshop where he crafts simple furniture and tools."
-            "Samson is being focused by his parent on learning new skills woodworking skills for better use.")
-        },
-        {
-            "id": "Jimmy",
-            "persona": ("Innate traits: calm, dull, unpleasant."
-            "Jimmy is a 53‑year‑old villager who has spent his entire life in a modest medieval settlement nestled between rolling pasturelands and a slow‑moving river. Behind the village lie dense woodlands where he often walks to gather herbs and fallen branches."
-            "He was raised in a family known for their skill in maintaining tools and tending livestock, and from a young age he learned patience, precision, and the value of steady work. Over decades, Edric became respected for his reliability and quiet wisdom."
-            "He enjoys repairing equipment for farmers, carving wooden utensils and small household items, and preparing simple herbal mixtures he learned from an elderly healer many years ago. His workshop—an aging shed filled with tools, scraps of wood, and half‑finished projects—is where he spends most afternoons."
-            "His normal daily routine includes checking on neighbors’ tools that need fixing, tending a small patch of vegetables behind his home, taking quiet walks in the woods to gather materials, and chatting with travelers to hear news of faraway lands. In the evenings, he often sits by the communal fire, sharing stories or offering advice to younger villagers.")
+            "id": name,
+            "persona": data["persona"],
+            "home_node": data["home_node"],
+            "home_area": data["home_area"]
         }
+        for name, data in agent_state_manager.get_agent_state().items()
     ]
-    
+
     global shutdown
     shutdown = False
     #signal.signal(signal.SIGINT, signal_handler)
@@ -379,10 +453,8 @@ def main():
     tree.load()
     
     client = UnityClient()
-    agent_state_manager = AgentStateManager()
-    area_system.start_listener(5006)
+    area_state_manager.start_listener(5006)
 
-    clock = SimulationClock(time_scale=300) #1 real seconds = 5 simulated minutes
     conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False)
     
     num_agents = len(agents_config)
@@ -398,6 +470,10 @@ def main():
             "is_busy_until": 0,
             "is_chatting": False,
             "active_task": None,    # Track running future
+            "current_target": config["home_node"],  # Track current target node
+            "current_area": config["home_area"],    # Track current area
+            "prev_target": None,
+            "prev_area": None
         } for config in agents_config
     }
 
@@ -408,6 +484,22 @@ def main():
 
             if clock.is_new_day():
                 simulation_active = False
+
+                for config in agents_config:
+                    agent_id = config["id"]
+                    data = agent_executions[agent_id]
+                    home_node = config["home_node"]
+                    home_area = config["home_area"]
+                    if data["active_task"] and not data["active_task"].done():
+                        data["active_task"].result()  # Wait for current task to finish
+
+                    while data["is_chatting"]:
+                        time.sleep(1)  # Wait for chat to finish
+
+                    client.move_to(home_node, "", "Return Home", agent_id, wait_for_response=True)
+                agent_state_manager.reset_agents()
+                area_state_manager.reset_area()
+
                 print(f"\n--- New Day - {clock.get_time_string()} ---")
                 for agent_id, data in agent_executions.items():
                     description, emojis = get_plan(agent_id)
@@ -452,11 +544,11 @@ def main():
     finally:        
         executor.shutdown(wait=False, cancel_futures=True)
         print("[SHUTDOWN] All agent tasks completed")
-        area_system.stop_listener()
+        area_state_manager.stop_listener()
         client.close()
         print("[SHUTDOWN] All connections closed")
         agent_state_manager.reset_agents()
-        area_system.reset_all()
+        area_state_manager.reset_area()
         print("[SHUTDOWN] Complete")
 
 if __name__ == "__main__":

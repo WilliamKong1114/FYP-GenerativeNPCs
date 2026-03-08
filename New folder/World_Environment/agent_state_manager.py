@@ -4,20 +4,22 @@ import os
 class AgentStateManager:
     def __init__(self, file_path="World_Environment/agent_state.json"):
         self.state_file = file_path
-        self.state = {"agents": {}, "time": "unknown"}
+        self.state = {
+            "agents": {},
+            "time": ""
+        }
         self.load_state()
 
     def get_agent_state(self):
         return self.state.get("agents", {})
         
-    def set_agent_state(self, area, agent_id, action_desc, obj):
-        if "agents" not in self.state:
-            self.state["agents"] = {}
-        self.state["agents"][agent_id] = {
+    def set_agent_state(self, agent_id, action_desc):
+        if agent_id not in self.state["agents"]:
+            self.state["agents"][agent_id] = {}
+
+        self.state["agents"][agent_id].update({
             "action": action_desc,
-            "interaction_area": area,
-            "interaction_object": obj
-        }
+        })
         self.save_state()
 
     def load_state(self):
@@ -26,7 +28,9 @@ class AgentStateManager:
                 with open(self.state_file, 'r') as f:
                     content = f.read()
                     if content:
-                        self.state = json.loads(content)
+                        data = json.loads(content)
+                        self.state.update(data)
+                        return self.state
                     return self.state
             except (json.JSONDecodeError, IOError):
                 pass
@@ -42,17 +46,10 @@ class AgentStateManager:
         self.save_state()
 
     def reset_agents(self):
-        default = {
-            "Jimmy": {
-                "action": "Jimmy is resting at home.",
-                "interaction_area": "House_Jimmy",
-                "interaction_object": "House_Jimmy"
-            },
-            "Samson": {
-                "action": "Samson is resting at home.",
-                "interaction_area": "House_Samson",
-                "interaction_object": "House_Samson"
-            }
-        }
-        self.state["agents"] = default
+        for agent_id, config in self.state["agents"].items():
+            home = config.get("home_node", f"House_{agent_id}")
+            config.update({
+                "action": f"{agent_id} is resting at home."
+            })
+            
         self.save_state()

@@ -13,18 +13,14 @@
             "occupied_by": null
         },
         "Bed_Samson": {
-            "state": "empty",
-            "occupied_by": null
+            "state": "occupied",
+            "occupied_by": "Samson"
         },
         "Storage_Samson": {
             "state": "empty",
             "occupied_by": null
         },
         "Hearth_Samson": {
-            "state": "empty",
-            "occupied_by": null
-        },
-        "unknown": {
             "state": "empty",
             "occupied_by": null
         }
