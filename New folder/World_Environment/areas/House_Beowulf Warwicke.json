@@ -1,0 +1,29 @@
+{
+    "objects": {
+        "House_Beowulf Warwicke": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Wall": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Table_Beowulf Warwicke": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Bed_Beowulf Warwicke": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Storage_Beowulf Warwicke": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Hearth_Beowulf Warwicke": {
+            "state": "empty",
+            "occupied_by": null
+        }
+    },
+    "agents": []
+}

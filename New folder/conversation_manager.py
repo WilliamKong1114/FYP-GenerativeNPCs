@@ -5,6 +5,8 @@ import json
 import threading
 from dotenv import load_dotenv
 import manage_data
+import reflection
+
 from agent_memory import AgentMemoryManager
 from Secure.llm_config import dialogue_llm
 from World_Environment.simulation_clock import SimulationClock
@@ -27,14 +29,15 @@ class ConversationManager:
         self.debug_mode = debug_mode
         self.db_lock = threading.Lock()
 
-    def generate_agent_response(self,agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str = None, thread_id: str = None):
+    def generate_agent_response(self, agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str = None, partner_id: str = None, thread_id: str = None):
         #incharge of in-game conversation generation
         config = {
             "configurable": {
                 "thread_id": thread_id,
                 "user_id": agent_id,
                 "agent_name": agent_id,
-                "agent_persona": agent_persona
+                "agent_persona": agent_persona,
+                "partner_id": partner_id
             }
         }
         
@@ -67,7 +70,7 @@ class ConversationManager:
         for turn in self.generate_dialogue(area, group, context):
             speaker = turn["speaker"]
             text = turn["text"]
-            print(f"\n[D] {speaker}: {text}")
+            #print(f"\n[D] {speaker}: {text}")
 
             if (self.debug_mode):
                 debug_convo.append(f'{speaker}: "{text}"')
@@ -157,7 +160,7 @@ class ConversationManager:
 
             print(f"[{user_id}]: {description} (Imp: {importance})")
             last_summary += f"- {description}\n"
-
+            
         return last_summary
 
     def check_conversation_status(self, sender_id,dialogue_history):
@@ -229,13 +232,14 @@ class ConversationManager:
 
             for i in range(max_turns):
                 others = [p for p in participants if p['id'] != current_speaker['id']]
-                others_str = ", ".join([p['id'] for p in others])
+                partner_id = others[0]['id'] if others else None
                 
                 response_text = self.generate_agent_response(
                     agent_id=current_speaker['id'],
                     agent_persona=current_speaker['persona'],
                     triggering_msg=last_text,
                     sender_id=sender_id,
+                    partner_id=partner_id,
                     thread_id=f"{current_speaker['id']}_{conv_id}"
                 )
                 
@@ -280,6 +284,7 @@ class ConversationManager:
                 log_id = self.memory_manager.add_conversation_log(participants, log_string, place)
                 for p in participants:
                     self.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
+
                 print(f"Saved conversation logs and summaries for {participants}")
             except Exception as e:
                 print(f"Error saving conversation: {e}")

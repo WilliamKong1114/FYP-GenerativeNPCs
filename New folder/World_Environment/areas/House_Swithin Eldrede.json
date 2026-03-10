@@ -1,0 +1,29 @@
+{
+    "objects": {
+        "House_Swithin Eldrede": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Wall": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Table_Swithin Eldrede": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Bed_Swithin Eldrede": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Storage_Swithin Eldrede": {
+            "state": "empty",
+            "occupied_by": null
+        },
+        "Hearth_Swithin Eldrede": {
+            "state": "empty",
+            "occupied_by": null
+        }
+    },
+    "agents": []
+}

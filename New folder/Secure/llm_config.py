@@ -1,11 +1,10 @@
 import os
 from dotenv import load_dotenv
 from langchain_azure_ai.chat_models import AzureAIChatCompletionsModel
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAI
+#from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAI
+#api_key = os.getenv("GOOGLE_API_KEY")
 
 load_dotenv()
-
-#api_key = os.getenv("GOOGLE_API_KEY")
 tokens_env = os.getenv("GITHUB_TOKEN")
 ENDPOINT = "https://models.github.ai/inference"
 
@@ -33,13 +32,18 @@ def build_client_google(model_name: str, temperature: float, max_tokens: int = 4
     )
  """
  
- #"meta/Meta-Llama-3.1-8B-Instruct"
+#"meta/Meta-Llama-3.1-8B-Instruct"
 #"cohere/cohere-command-a"
 
-dialogue_llm = build_client_github("openai/gpt-4.1-mini", 0.3)
-skill_llm = build_client_github("openai/gpt-4.1-nano", 0.3)
+#dialogue_llm = build_client_github("openai/gpt-4.1-mini", 0.3)
+#dialogue_llm = build_client_github("meta/Llama-3.2-11B-Vision-Instruct", 0.3)
+dialogue_llm = build_client_github("openai/gpt-4o-mini", 0.3)
+skill_llm = build_client_github("meta/Meta-Llama-3.1-8B-Instruct", 0.3)
 planner_llm = build_client_github("openai/gpt-4o-mini", 0.3, 2048)
+emoji_llm = build_client_github("meta/Meta-Llama-3.1-8B-Instruct", 0.3)
 routing_llm = build_client_github("microsoft/Phi-4", 0.3)
+observe_llm = build_client_github("mistral-ai/Ministral-3B", 0.7, 2048)
+reflect_llm = build_client_github("openai/gpt-4.1-mini", 0.8, 4096)
 
 #"gemini-1.5-pro"
 

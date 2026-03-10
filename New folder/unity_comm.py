@@ -61,13 +61,13 @@ class UnityClient:
             for agent_id, sock in self._connections.items():
                 if sock:
                     sock.close()
-                    print(f"[C] Closed connection for {agent_id}")
+                    #print(f"[C] Closed connection for {agent_id}")
             self._connections.clear()
 
     """ def get_state(self):
         return self.send_command({"action": "get_state"}, wait_for_response=True)"""
 
-    def build_and_send(self, action: str, agent_id: str = None, target: str = None, content: str = None, wait_for_response: bool = False, **kwargs):
+    def build_and_send(self, action: str, agent_id: str = None, target: str = None, content: str = None, display_time: float = None, wait_for_response: bool = False, **kwargs):
         cmd = {"action": action, **kwargs}
         if agent_id:
             cmd["agent"] = agent_id
@@ -75,6 +75,8 @@ class UnityClient:
             cmd["target"] = target
         if content:
             cmd["content"] = content
+        if display_time:
+            cmd["display_time"] = display_time
         self.send_command(cmd, agent_id=agent_id, wait_for_response=wait_for_response)
 
     def move_to(self, target: str, content: str = None, description: str = None, agent_id: str = None, wait_for_response: bool = False):
@@ -86,8 +88,8 @@ class UnityClient:
     def set_chatting(self, agent_id: str = None, content: str = None):
         self.build_and_send("set_chatting", agent_id=agent_id, content=content)
 
-    def show_dialogue(self, content: str, agent_id: str = None):
-        self.build_and_send("show_dialogue", agent_id, content=content)
+    def show_dialogue(self, content: str, agent_id: str = None, display_time: float = None):
+        self.build_and_send("show_dialogue", agent_id, content=content, display_time=display_time)
 
     def interact(self, target: str, method: str, parameters: dict = None, agent_id: str = None):
         kwargs = {"target": target, "method": method}
@@ -108,7 +110,7 @@ class UnityClient:
         partner_id = command_dict.get("partner")
 
         if action == "request_conversation" and agent_executions[agent_id]["is_chatting"] == True and agent_executions[partner_id]["is_chatting"] == True:
-            print(f"[TCP] Waiting for user to finish reading conversation...")
+            #print(f"[TCP] Waiting for user to finish reading conversation...")
             self.wait_for_conv_finish(agent_id)
 
     def receive_msg(self, agent_id: str, timeout: float = 2.0):

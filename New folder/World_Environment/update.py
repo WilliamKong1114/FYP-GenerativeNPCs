@@ -4,12 +4,16 @@ import json
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from World_Environment.environment_tree import EnvironmentTree
-from World_Environment.area_state_manager import get_area_manager, AREAS_DIR
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(ROOT_DIR)
 
+from World_Environment.environment_tree import EnvironmentTree
+from World_Environment.area_state_manager import AreaSystem
+
+area_state_manager = AreaSystem()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+AREAS_DIR = os.path.join(BASE_DIR, "areas")
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
@@ -111,8 +115,9 @@ def initialize_areas_json():
                     area_mapping[node.name] = []
 
     for area_name, obj_names in area_mapping.items():
-        manager = get_area_manager(area_name)
-        current_objects, agents_in_area = manager.get_area_state()
+        manager = area_state_manager.get_manager(area_name)
+        current_objects = manager.get_area_state()
+        agents_in_area = manager.get_agents_in_area()
         
         for obj_name in obj_names:
             if obj_name not in current_objects:
@@ -120,7 +125,7 @@ def initialize_areas_json():
         
         manager.save_state()
     
-    print(f"[AreaStateManager] Synchronized {len(area_mapping)} area state files in {AREAS_DIR}")
+    print(f"[AreaStateManager] Synchronized {len(area_mapping)} area state files")
 
 if __name__ == "__main__":
     update_tree()

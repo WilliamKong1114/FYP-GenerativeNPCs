@@ -7,13 +7,11 @@ import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
-from Secure.llm_config import planner_llm as llm
+from Secure.llm_config import planner_llm, emoji_llm
 
 load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "Database", "plans.db")
-
-# llm definition moved to llm_config.py
 
 def get_plan(user_id: str):
     conn = None
@@ -42,7 +40,7 @@ def store_plan(plan: List[Dict[str, Any]], user_id: str = "default_user", parent
     for p in plan:
         plan_id = p.get("plan_id") or str(uuid.uuid4())        
         cur.execute(
-            "INSERT OR REPLACE INTO plans(plan_id, user_id, plan_json, description, created_on, modified_on, parent_id) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO plans(plan_id, user_id, plan_json, description, created_on, modified_on, parent_id) VALUES (?,?,?,?,?,?,?)",
             (plan_id, user_id, json.dumps(p), p.get("description"), p.get("created_on"), p.get("modified_on"), parent_id or p.get("parent_id")),
         )
         ids.append(plan_id)
@@ -56,17 +54,22 @@ def generate_emojis(actions: List[str]) -> List[str]:
         actions_formatted = "\n".join([f"{i+1}. {act}" for i, act in enumerate(actions)])
         prompt = (
             "You are an emoji translator. For each action in the numbered list below, "
-            "provide exactly two emojis that best represent it. Do not add or include any gender signs or symbols.\n"
-            "Return ONLY a JSON list of strings, where each string contains the two emojis. "
-            "STRICT RULES:\n"
-            "1. Use ONLY base Unicode emojis.\n"
-            "2. DO NOT use skin tone modifiers or gender variants.\n"
-            "3. Do not include markdown formatting or numbering in the output.\n\n"
+            "Output must be a pure JSON array of strings. No prose, no comments, no extra keys."
+            "Each string MUST contain exactly 2 emoji characters back-to-back — no spaces, no punctuation, no words." 
+            "Use only single-codepoint emojis with default emoji presentation (no sequences)."
+            "Absolutely FORBIDDEN characters/sequences:"
+            "- Zero Width Joiner (U+200D)"
+            "- Variation Selectors (U+FE0E, U+FE0F)"
+            "- Keycap combining mark (U+20E3)"
+            "- Skin tones (U+1F3FB–U+1F3FF)" 
+            "- Gender signs/symbols (e.g., U+2640, U+2642)"
+            "- Avoid newly added emojis; choose widely supported ones (no “🪟”, etc.)."
+            "- Do not output any letters, words, or spaces (e.g., NOT 'basket🥕')." 
             f"Actions:\n{actions_formatted}\n\n"
             "Output Example:\n"
             '["🚶‍♂️🌲", "📖🕯️", "😴🌙"]'
         )
-        response = llm.invoke(prompt)
+        response = emoji_llm.invoke(prompt)
         content = getattr(response, "content", "").strip()
         
         if "```json" in content:
@@ -112,10 +115,11 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_gene
             "Output each step as a sentence. Return a concise, numbered list of actions using a STRICT 24-hour time format (e.g., 13:00, 18:30). Do not include 'am' or 'pm', and ensure all times are formatted as HH:MM."
             
             "Requirements:\n"
-            "- Cover every hour from 06:00 to 22:00 with time period of {duration_prompt} specifically.\n"
+            f"- Cover every hour from 06:00 to 22:00 with time period of {duration_prompt} specifically.\n"
             "- Start each line with \"1) 6:00:\" format, then write a 15–20 word sentence.\n"
             "- Maintain a simple, grounded tone without sounding poetic or overly formal.\n"
             "- Each action needs to include a specific area or object (e.g., \"at the herb garden,\" \"in the weaving hut\").\n"
+            "- Provide task or actions based on the provided guidlines within each time frame. For example, if the provided description is: 'Gathered herbs and fallen branches in the woods from 08:00 to 10:00.' then provide task ONLY related to gathering herbs and fallen branches in the woods."
             
             "Output format (STRICT):\n"
             "1) 8:00: Tend the dirt land with tools to make the dirt better to be planted\n"
@@ -125,18 +129,18 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_gene
 
         ),
     }
-    resp = llm.invoke([system_msg, user_msg])
+    resp = planner_llm.invoke([system_msg, user_msg])
     out = getattr(resp, "content", None) or str(resp)
     
     emojis = []
     if emoji_generation:
         lines = (out or "").split('\n')
         actions = []
-        pattern = re.compile(r'\d+\)\s+(\d+:\d+):\s+(.*)')
+        pattern = re.compile(r'\d+\)\s+(\d{1,2}:\d{2})[:\s-]*(.*)')
         for line in lines:
-            match = pattern.match(line.strip())
+            match = pattern.search(line)
             if match:
-                actions.append(match.group(2))
+                actions.append(match.group(2).strip())
         
         emojis = generate_emojis(actions)
 
@@ -151,7 +155,8 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_gene
         "modified_on": datetime.datetime.now().isoformat(),
         "parent_id": parent_plan.get("plan_id")
     }
-    store_plan([plan], user_id=user_id)
+    if (emoji_generation):
+        store_plan([plan], user_id=user_id)
     return plan
 
 def init_plan(user_id: str, background: Optional[str], today: Optional[str] = None) -> Dict[str, Any]:
@@ -159,7 +164,7 @@ def init_plan(user_id: str, background: Optional[str], today: Optional[str] = No
     instruction = plan_prompt(background, today=today)
     #system_msg = {"role": "system", "content": "You are a focused planning assistant. Produce a concise, numbered plan as instructed."}
     user_msg = {"role": "user", "content": instruction}
-    resp = llm.invoke([user_msg])
+    resp = planner_llm.invoke([user_msg])
     out = getattr(resp, "content", None) or str(resp)
 
     top_plan: Dict[str, Any] = {
@@ -171,32 +176,26 @@ def init_plan(user_id: str, background: Optional[str], today: Optional[str] = No
         "modified_on": datetime.datetime.now().isoformat(),
     }
 
-    store_plan([top_plan], user_id=user_id)
+    #store_plan([top_plan], user_id=user_id)
     child_plan = decompose_plan(top_plan, duration_prompt="1 hour", emoji_generation=False)   
     child_plan_2 = decompose_plan(child_plan, duration_prompt="30 minutes", emoji_generation=True)      
     return {"top_plan": top_plan, "child_plan": child_plan, "child_plan_2": child_plan_2}
 
 if __name__ == "__main__":
-    uid = "Samson"
-    persona = ("Name: Samson (age: 35)\n"
-        "Samson is a young villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge."
-        "He was born to a farming family and learned from an early age how to tend crops, care for simple tools, and respect the rhythms of the seasons."
-        "He is boring and don't like to social with others."
-        "He has a small workshop where he crafts simple furniture and tools."
-        "Samson is being focused by his parent on learning new skills woodworking skills for better use.")
-    
-    """     
-    uid = "Jimmy"
-    persona = ("Name: Jimmy (age: 54)\n"
-        "Innate traits: calm, dependable, observant."
-        "Jimmy is a 53‑year‑old villager who has spent his entire life in a modest medieval settlement nestled between rolling pasturelands and a slow‑moving river. Behind the village lie dense woodlands where he often walks to observe wildlife and gather smooth branches for crafting."
-        "He was born into a family known for their skill in weaving and dyeing textiles, and from an early age he learned how to work with fibers, mix natural pigments, and appreciate the rhythm of careful handiwork. Over the decades, Jimmy became admired for his steady presence, gentle manner, and practical advice during busy harvest seasons."
-        "He enjoys spinning wool, weaving sturdy cloth for villagers, and experimenting with natural dyes using flowers, bark, and roots gathered from the forest. His weaving hut—filled with spindles, dyed yarn bundles, and a well‑worn loom—is where he spends most afternoons working on new patterns."
-        "His normal daily routine includes checking on drying fabrics hung behind his home, tending a few herb beds used for dyes, taking calm walks along the woods to gather plants, and speaking with travelers to exchange stories about trade routes and new weaving techniques. In the evenings, he often sits by the communal fire, sharing small handmade gifts or teaching basic weaving skills to younger villagers.")
-    """    
-    now = datetime.datetime.now().replace(second=0, microsecond=0)
-    init_plan(uid, background=persona, today="2026-02-13")
-    print(f"Plan stored in {DB_PATH} for user: {uid}")
+    AGENT_STATE_DIR = os.path.join(BASE_DIR, "World_Environment", "agent_state.json")
+
+    with open(AGENT_STATE_DIR, 'r', encoding='utf-8') as f:
+        agent_data = json.load(f)
+
+    agents = agent_data.get("agents")
+    for agent_id, agent_info in agents.items():
+        uid = agent_id
+        persona = agent_info.get("persona")    
+        now = datetime.datetime.now().replace(second=0, microsecond=0)
+        init_plan(uid, background=persona, today="2026-02-13")
+        print(f"Plan for {uid} stored.")
+
+    print(f"Plan stored for all agents.")
 
 
 

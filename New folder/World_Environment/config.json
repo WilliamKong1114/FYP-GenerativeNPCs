@@ -75,6 +75,78 @@
       ]
     },
     {
+      "name": "House_Swithin Eldrede",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Swithin Eldrede",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Wall",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Swithin Eldrede",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Swithin Eldrede",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Swithin Eldrede",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Swithin Eldrede",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "House_Beowulf Warwicke",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Beowulf Warwicke",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Wall",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Beowulf Warwicke",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Beowulf Warwicke",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Beowulf Warwicke",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Beowulf Warwicke",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
       "name": "Garden",
       "type": "area",
       "children": [

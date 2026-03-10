@@ -14,7 +14,7 @@ from typing import Annotated
 from cachetools import TTLCache
 from planner import get_plan
 from unity_comm import UnityClient
-from Secure.llm_config import skill_llm as llm
+from Secure.llm_config import skill_llm, observe_llm
 from World_Environment.environment_tree import EnvironmentTree
 from World_Environment.agent_state_manager import AgentStateManager
 from World_Environment.area_state_manager import AreaSystem
@@ -24,19 +24,22 @@ from conversation_manager import ConversationManager
 from openai import APITimeoutError
 from chroma_client import get_client
 from agent_memory import AgentMemoryManager
+import manage_data
+import reflection
 
 load_dotenv()
 chroma_client = get_client(path="./chroma_db")
 agent_state_manager = AgentStateManager()
 area_state_manager = AreaSystem()
-_obs_memory = AgentMemoryManager()
+memory_manager = AgentMemoryManager()
 clock = SimulationClock(time_scale=300) #1 real seconds = 5 simulated minutes
+tree = EnvironmentTree()
+tree.load()
+
 
 @lru_cache(maxsize=2)
 def get_collection(name: str):
     return chroma_client.get_or_create_collection(name)
-
-# llm definition moved to llm_config.py
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -75,7 +78,7 @@ def getUserInfo(config: RunnableConfig):
 #CACHE_DURATION = 300
 #memory_cache = TTLCache(maxsize=1024, ttl=CACHE_DURATION)
 
-def get_memory(query: str, user_id: str):
+def get_memory(query: str, user_id: str, partner_id: str = None):
     try:
         results = get_collection("memories").query(
             query_texts=[query],
@@ -92,16 +95,20 @@ def get_memory(query: str, user_id: str):
         current_hours = clock.get_sim_hour()
         retrieved_memories = []
 
-        for i in range(len(documents)):
-            relevance = 1.0 / (1.0 + distances[i])
-            importance = metadatas[i].get("importance", 3) / 10.0
+        for doc, meta, dist in zip(documents, metadatas, distances):
+            relevance = 1.0 / (1.0 + dist)
+            importance = meta.get("importance", 3) / 10.0
 
-            last_accessed = metadatas[i].get("modified_on", 0)
+            last_accessed = meta.get("modified_on", 0)
             delta_t = max(0, current_hours - last_accessed)
             recency = pow(0.99, delta_t)
 
             final_score = (0.5 * recency) + (0.3 * importance) + (0.2 * relevance)
-            retrieved_memories.append((documents[i], final_score))
+
+            if partner_id and partner_id.lower() in doc.lower():
+                final_score *= 1.5
+            
+            retrieved_memories.append((doc, final_score))
 
         retrieved_memories.sort(key=lambda x: x[1], reverse=True)
         top_memories = [m[0] for m in retrieved_memories[:3]]
@@ -118,6 +125,7 @@ def agent_node(state: State, config: RunnableConfig):
     user_id = conf.get("user_id")
     agent_name = conf.get("agent_name")
     agent_persona = conf.get("agent_persona")
+    partner_id = conf.get("partner_id")
     
     user_msgs = []
     for m in state.get("messages", []):
@@ -130,29 +138,33 @@ def agent_node(state: State, config: RunnableConfig):
             user_msgs.append({"role": role, "content": text})
 
     if (user_msgs):    
-        memory_context = get_memory(user_msgs[-1]["content"], user_id)
+        memory_context = get_memory(user_msgs[-1]["content"], user_id, partner_id)
     else:
         memory_context = ""
     
+    partner_context = ""
+    if partner_id:
+        partner_context = f"You are currently talking to {partner_id}. Recognize them as your conversation partner and use 'we', 'you', and 'us' appropriately when referring to shared plans or activities."
+    
     system_prompt = f"""
-        You are {agent_name}, a villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge..
+        You are {agent_name}, a villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge.
         {agent_persona}
+        {partner_context}
         Use memory tools to remember and recall information about users. 
         Minimize greetings, salutations, or sign-offs.
         Access the memory context to make the conversation relevant to current situation: {memory_context}.
         
-        Respond in a casual, human-like tone that feels natural.
-        - Keep your responses under 50 words
-        - DO NOT start every message with "Morning", "Hello", or the partner's name. Use greetings only occasionally.
+        Respond in a way that fits your personality.
+        - Keep your responses around 25 words
+        - DO NOT start every message with "Morning", "Hello", or the partner's name. Use greetings that fits your personality.
         - Use contractions, and everyday language. 
         - Avoid sounding overly formal or poetic. 
-        - Keep it conversational, change the speaking tone depends on the opponent's identity. 
         - Avoid repeating previous statements and topics unless necessary.
         - Adapt responses to the user's latest input and keep them fresh.
         - Determine when to ask questions to keep the conversation flowing, but avoid asking too many in a row.
     """
 
-    response = llm.invoke([{"role": "system", "content": system_prompt}] + user_msgs)
+    response = skill_llm.invoke([{"role": "system", "content": system_prompt}] + user_msgs)
     return {"messages": [response]}
 
 tools = [
@@ -232,7 +244,7 @@ def generate_new_skill(action_desc, agent_state=None, relevant_skills=None, last
     {feedback_section}
     Generate the Python code now.
     """
-    response = llm.invoke(prompt)
+    response = skill_llm.invoke(prompt)
     code = response.content.replace("```python", "").replace("```", "").strip()
     return code
 
@@ -270,14 +282,9 @@ def resolve_and_execute_skill(action_desc, target_name, client, agent_id=None, a
     return 3.0
 
 shutdown = False
-#state_lock = threading.Lock()
 chat_lock = threading.Lock()
 
-def signal_handler(sig, frame):
-    global shutdown
-    shutdown = True
-
-def find_target(action: str, tree: EnvironmentTree, agent_data):
+def find_target(action: str, agent_data):
     path_nodes = tree.find_suitable_location(action, agent_data)
     if not path_nodes:
         return None, None, None, None
@@ -295,38 +302,22 @@ def find_target(action: str, tree: EnvironmentTree, agent_data):
         area_name = target_node.name
     return target_name, action_desc, area_name, obj_name
 
-def record_observation(agent_id: str, area_name: str, area_state: dict, agents_in_area: list, action: str, state_manager):
+def record_observation(agent_id: str, area_name: str, obj_name: str, action: str, client, agent_executions: dict):
     if area_name is None:
         return
-
-    obj_lines = []
-    for name, info in area_state.items():
-        occ = info.get("occupied_by")
-        if info.get("state") == "occupied" and occ:
-            other_action = state_manager.get_agent_state().get(occ, {}).get("action", f"{occ} is present")
-            obj_lines.append(f"- {name}: in use by {occ} ({other_action})")
-        else:
-            obj_lines.append(f"- {name}: empty")
-
-    #others = [a for a in agents_in_area if a != agent_id]
-    #agent_lines = []
-    #for other in others:
-        #other_action = state_manager.get_agent_state().get(other, {}).get("action", f"{other} is present")
-        #agent_lines.append(f"- {other}: {other_action}")
 
     user_content = (
         f"Agent: {agent_id}\n"
         f"About to perform: {action}\n"
-        f"Location: {area_name}\n"
-        f"Objects in area:\n" + ("\n".join(obj_lines) if obj_lines else "- none") + "\n"
-        #f"Other agents present:\n" + ("\n".join(agent_lines) if agent_lines else "- none")
+        f"Current location: {area_name}\n"
+        f"Current object using: {obj_name}\n"
     )
 
     system_msg = {
         "role": "system",
         "content": (
             "You are writing an observation record for a simulated village agent."
-            "Write 1 concise sentences (under 15 words) describing what the agent perceives upon arriving at the location, in third-person. "
+            "Write 1 concise sentences (under 15 words) describing what the agent perceives upon arriving at the location, what he/she is trying to do, or what is he/she about to do, in third-person."
             "Be natural, precise and specific — describe the state of objects related to the agent's action."
             "Avoid sounding overly formal or poetic."
             "Examples:\n"
@@ -337,21 +328,20 @@ def record_observation(agent_id: str, area_name: str, area_state: dict, agents_i
     }
     user_msg = {"role": "user", "content": user_content}
 
-    try:
-        #game_hour = conv_manager.clock.get_sim_hour() if conv_manager.clock else 0.0
-        response = llm.invoke([system_msg, user_msg])
-        obs_text = response.content.strip()
-        _obs_memory.add_observation(agent_id, obs_text, area_name)
-        #print(f"[OBSERVATION] {obs_text}")
-    except Exception as e:
-        print(f"[OBSERVATION ERROR] {agent_id} at {area_name}: {e}")
+    response = observe_llm.invoke([system_msg, user_msg])
+    obs_text = response.content.strip()
+    
+    manage_data.add_memories([obs_text], user_id=agent_id, importance=3, game_hour=clock.get_sim_hour())
+    memory_manager.add_observation(agent_id, obs_text, area_name)
 
-def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, agent_data, cur_time, conv_manager, agent_executions):
+    #reflection.check_reflect(agent_id, clock, agent_executions, client)
+
+def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_data, cur_time, conv_manager, agent_executions):
 
     prev_obj = agent_data.get("current_target")
     prev_area = agent_data.get("current_area")
 
-    target_result = find_target(action, tree, agent_data)
+    target_result = find_target(action, agent_data)
     target_name, action_desc, area_name, obj_name = target_result
     
     print(f"[{cur_time}] {agent_id}: {action} at {target_name}")
@@ -366,10 +356,8 @@ def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, 
     area_manager = area_state_manager.get_manager(area_name)
     with area_manager.lock:
         area_manager.load_state()
-        obs_state = area_manager.get_area_state()
-        obs_agents = area_manager.get_agents_in_area()
-
-    record_observation(agent_id, area_name, obs_state, obs_agents, action, state_manager)
+        #area_state = area_manager.get_area_state()
+        #obs_agents = area_manager.get_agents_in_area()
 
     #Check and claim object within area if needed
     with area_manager.lock:
@@ -387,6 +375,9 @@ def execute_agent_action(agent_id, action, emojis, tree, client, state_manager, 
         agent_data["prev_target"] = prev_obj
         agent_data["prev_area"] = prev_area
 
+    record_observation(agent_id, area_name, obj_name, action, client=client, agent_executions=agent_executions)
+    reflection.check_reflect(agent_id, clock, agent_executions, client)
+    
     #time.sleep(2)
     #duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id, agent_data)
     
@@ -446,15 +437,10 @@ def main():
     ]
 
     global shutdown
-    shutdown = False
-    #signal.signal(signal.SIGINT, signal_handler)
-    
-    tree = EnvironmentTree()
-    tree.load()
+    shutdown = False    
     
     client = UnityClient()
     area_state_manager.start_listener(5006)
-
     conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False)
     
     num_agents = len(agents_config)
@@ -469,6 +455,7 @@ def main():
             "current_step": 0,
             "is_busy_until": 0,
             "is_chatting": False,
+            "is_reflecting": False,
             "active_task": None,    # Track running future
             "current_target": config["home_node"],  # Track current target node
             "current_area": config["home_area"],    # Track current area
@@ -515,7 +502,7 @@ def main():
                     is_busy = data["active_task"] is not None and not data["active_task"].done()
                     is_cooldown = time.time() < data["is_busy_until"]
 
-                    if (not is_busy and not is_cooldown and not data["is_chatting"] and data["current_step"] < len(data["steps"])):    # has tasks remaining
+                    if (not is_busy and not is_cooldown and not data["is_chatting"] and not data["is_reflecting"] and data["current_step"] < len(data["steps"])):    # has tasks remaining
                         step_index = data["current_step"]
                         action = data["steps"][step_index]
                         cur_time = clock.get_time_string()
@@ -526,7 +513,7 @@ def main():
                                 step_emoji = "".join(step_emoji)
                                 
                         future = executor.submit(
-                            execute_agent_action, agent_id, action[1], step_emoji, tree, client, 
+                            execute_agent_action, agent_id, action[1], step_emoji, client, 
                             agent_state_manager, data, cur_time, conv_manager, agent_executions
                         )
 

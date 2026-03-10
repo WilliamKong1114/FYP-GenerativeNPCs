@@ -118,7 +118,7 @@ class AreaSystem:
                                 mgr.state["objects"][obj]["state"] = "empty"
                                 mgr.state["objects"][obj]["occupied_by"] = None
                         mgr.save_state()
-            print("[AreaManager] All area agent lists and object states have been reset.")
+            #print("[AreaManager] All area agent lists and object states have been reset.")
 
         if not os.path.exists(AGENT_STATE_DIR):
             return

@@ -25,7 +25,7 @@ class AgentStateManager:
     def load_state(self):
         if os.path.exists(self.state_file):
             try:
-                with open(self.state_file, 'r') as f:
+                with open(self.state_file, 'r', encoding='utf-8') as f:
                     content = f.read()
                     if content:
                         data = json.loads(content)
@@ -38,7 +38,7 @@ class AgentStateManager:
         return self.state
 
     def save_state(self):
-        with open(self.state_file, 'w') as f:
+        with open(self.state_file, 'w', encoding='utf-8') as f:
             json.dump(self.state, f, indent=4)
 
     def set_time(self, time_string):
