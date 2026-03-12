@@ -35,9 +35,6 @@ def check_reflect(agent_id: str, clock, agent_executions: dict, client=None) -> 
 
     agent_execution = agent_executions.get(agent_id)
 
-    # Only block the agent immediately if no other agent is currently reflecting.
-    # If the worker is busy, let this agent continue its tasks freely;
-    # the worker will set is_reflecting=True when it actually dequeues this agent.
     worker_is_idle = not any(data.get("is_reflecting") for data in agent_executions.values())
     if worker_is_idle:
         agent_execution["is_reflecting"] = True
@@ -50,8 +47,6 @@ def _reflection_worker() -> None:
     while True:
         agent_id, clock, agent_execution, client = _reflection_queue.get()
         #print(f"[REFLECT] Starting reflection for {agent_id}...")
-        # Ensure the flag is set regardless of whether it was deferred at queue time.
-        #agent_execution["is_reflecting"] = True
         try:
             run_reflect(agent_id, clock, client)
             memory_manager.mark_records_used(agent_id)

@@ -165,9 +165,6 @@ class EnvironmentTree:
             target = self.find_target_location(self.root, action)
             if target and target.state != "empty":
                 target = None
-
-        if not target:
-            return []
         
         # Build path
         path = []
@@ -193,14 +190,14 @@ class EnvironmentTree:
         traverse(node)
         return "\n".join(f"- {path}" for path in candidate_info)
 
-    def find_target_location(self, current_node: EnvironmentNode, action: str, agent_context: str) -> Optional[EnvironmentNode]:
+    def find_target_location(self, current_node: EnvironmentNode, action: str) -> Optional[EnvironmentNode]:
         if not current_node.children:
             return current_node
 
         candidate_info = self._build_candidate_list(current_node)        
         prompt = f"""Action: {action}
-                Context: {agent_context}
-                Candidates: {candidate_info}
+                Context: You are trying to find the best location within the candidates list that fit to perform the above action.
+                Candidates: {candidate_info}.
                 Output format (IMPORTANT):
                 - Prefer locations under the same root/area as the agent's current location in Context (e.g. same House/room/area).
                 - Ensure the location is a logical fit for the action.  
@@ -211,7 +208,8 @@ class EnvironmentTree:
                 Examples of correct paths:
                     - For "plant seeds in the garden": "World/Garden/Land/Dirt"
                     - For "dump trash": "World/Dump/Table"
-                    - For "cook in the kitchen": "World/Kitchen/Stove"                - Final output: A single line with ONLY the path.                
+                    - For "cook in the kitchen": "World/Kitchen/Stove"                
+                    - Final output: A single line with ONLY the path.                
                 """
         response = llm.invoke(prompt).content.strip()
         target = self._find_node_by_path(current_node, response) if response else self.root

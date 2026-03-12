@@ -1,9 +1,0 @@
-{
-    "objects": {
-        "River": {
-            "state": "empty",
-            "occupied_by": null
-        }
-    },
-    "agents": []
-}

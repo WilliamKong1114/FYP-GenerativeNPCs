@@ -3,31 +3,73 @@ import random
 import uuid
 import json
 import threading
+import traceback
 from dotenv import load_dotenv
 import manage_data
-import reflection
 
 from agent_memory import AgentMemoryManager
-from Secure.llm_config import dialogue_llm
+from Secure.llm_config import skill_llm
 from World_Environment.simulation_clock import SimulationClock
 
 load_dotenv()
 
 CONVERSATION_COOLDOWN = 200
-PROBABILITY_TO_TALK = 0.8
+PROBABILITY_TO_TALK = 1
 MIN_CONVERSATION_TURNS = 6
-MAX_TERNS = 20
+MAX_TERNS = 16
 EXTRA_TURNS_PER_PARTICIPANT = 2
 
 class ConversationManager:
     def __init__(self, graph=None, clock: "SimulationClock"=None, debug_mode: bool = False):
         self.last_conversation_time = {}
         self.memory_manager = AgentMemoryManager()
-        self.llm = dialogue_llm
+        self.llm = skill_llm
         self.clock = clock
         self.graph = graph
         self.debug_mode = debug_mode
         self.db_lock = threading.Lock()
+        self._pending_conversations: set[frozenset] = set()
+        self._pending_lock = threading.Lock()
+
+    def check_conversation(self, area: str, group: list, agent_executions: dict, client=None) -> bool:
+        if not self.start_conversation(area, group):
+            return False
+
+        agent_ids = [a["id"] for a in group]
+        pair_key = frozenset(agent_ids)
+
+        with self._pending_lock:
+            if pair_key in self._pending_conversations:
+                return False
+            self._pending_conversations.add(pair_key)
+
+        for a_id in agent_ids:
+            agent_executions[a_id]["is_chatting"] = True
+            agent_executions[a_id]["is_busy_until"] = time.time() + 600
+
+        def _run():
+            try:
+                if client:
+                    for a_id in agent_ids:
+                        client.set_chatting(a_id, "start")
+                self.handle_conversation(area, group, agent_executions=agent_executions, client=client)
+                if client:
+                    for a_id in agent_ids:
+                        client.set_chatting(a_id, "stop")
+            except Exception as e:
+                print(f"[CONV] Error for {agent_ids}: {e}\n{traceback.format_exc()}")
+                for a_id in agent_ids:
+                    if a_id in agent_executions:
+                        agent_executions[a_id]["is_chatting"] = False
+                        agent_executions[a_id]["is_busy_until"] = time.time() + 5
+            finally:
+                with self._pending_lock:
+                    self._pending_conversations.discard(pair_key)
+
+        t = threading.Thread(target=_run, daemon=True, name=f"Conv-{'&'.join(agent_ids)}")
+        t.start()
+        print(f"[CONV] {' & '.join(agent_ids)} started conversation at {area}.")
+        return True
 
     def generate_agent_response(self, agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str = None, partner_id: str = None, thread_id: str = None):
         #incharge of in-game conversation generation
@@ -101,7 +143,7 @@ class ConversationManager:
             if self.debug_mode:
                 print(f"\n--- No Conversation: {', '.join(agent_ids)} at {areaName} ---")
             return False
-
+        
         if random.uniform(0.1, 1.0) > PROBABILITY_TO_TALK:
             self.last_conversation_time[group_key] = time.time() - (CONVERSATION_COOLDOWN - 10)
             if self.debug_mode:
@@ -158,7 +200,7 @@ class ConversationManager:
             manage_data.add_memories([description], user_id=user_id, importance=importance, game_hour=current_game_hours)
             self.memory_manager.save_summary(user_id=user_id, summary=description, importance=importance, log_id=log_id)
 
-            print(f"[{user_id}]: {description} (Imp: {importance})")
+            #print(f"[{user_id}]: {description} (Imp: {importance})")
             last_summary += f"- {description}\n"
             
         return last_summary
@@ -260,7 +302,7 @@ class ConversationManager:
                         wrap_up_turn = {"speaker": current_speaker['id'], "text": status}
                         dialogue_history.append(wrap_up_turn)
                         yield wrap_up_turn
-                    print(f"Conversation ended at turn {i+1}")
+                    #print(f"Conversation ended at turn {i+1}")
                     break
                 if not others:
                     break

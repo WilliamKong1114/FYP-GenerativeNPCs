@@ -20,7 +20,7 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
             case "move_to":
                 Debug.Log($"[Dispatcher] Processing move_to for {cmd.agent}: target={cmd.target}, content={cmd.content}");
                 simAgent.MoveTo(cmd.target);
-                simAgent.showDialogue(cmd.content);
+                simAgent.showDialogue(cmd.content, cmd.display_time);
                 break;
 
             case "interact":
@@ -37,7 +37,7 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
                 break;
 
             case "show_dialogue":
-                simAgent.showDialogue(cmd.content);
+                simAgent.showDialogue(cmd.content, cmd.display_time);
                 break;
 
             case "set_chatting":

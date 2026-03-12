@@ -25,7 +25,30 @@
             "home_node": "Bed_Samson",
             "home_area": "House_Samson",
             "action": "Samson is resting at home."
+        },
+        "Swithin Eldrede": {
+            "persona": [
+                "Timid, easily startled.",
+                "Swithin Eldrede is a 46 year old villager who has lived his whole life in the small medieval settlement near the river, surrounded by pasturelands and the forest edge that both fascinates and terrifies him.",
+                "He grew up in a family that gathered berries, herbs, and mushrooms, but his nervous temperament made him cautious of every rustling leaf and shifting shadow.",
+                "He enjoys collecting herbs close to the village boundary, drying them carefully, weaving small grass charms to calm himself.",
+                "His typical day involves checking his small garden, picking herbs near the safer paths, avoiding dense woods, and asking neighbors if they have seen anything unusual that he should know about.",
+                "In the evenings, he sits close to the communal fire, clutching a warm cup of tea, listening anxiously to stories\u2014especially those he hopes does not keep him awake all night."
+            ],
+            "home_node": "Bed_Swithin Eldrede",
+            "home_area": "House_Swithin Eldrede",
+            "action": "Swithin Eldrede is resting at home."
+        },
+        "Beowulf Warwicke": {
+            "persona": [
+                "Ordinary.",
+                "Beowulf Warwicke is a 70 year old villager who has spent his entire life in a modest medieval settlement nestled between rolling pasturelands and a river. Behind the village lie dense woodlands where he often walks to gather herbs and fallen branches.",
+                "He does not speak at all. Every day, he walks down to the riverside and simply sits there, doing nothing, watching the water flow. He remains until nightfall before quietly returning home. He repeats this routine without change, day after day."
+            ],
+            "home_node": "Bed_Beowulf Warwicke",
+            "home_area": "House_Beowulf Warwicke",
+            "action": "Beowulf Warwicke is resting at home."
         }
     },
-    "time": "Day 0, 19:26"
+    "time": "Day 0, 21:01"
 }

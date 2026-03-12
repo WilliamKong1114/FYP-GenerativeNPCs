@@ -4,10 +4,11 @@ import datetime
 import json
 import re
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
-from Secure.llm_config import planner_llm, emoji_llm
+from Secure.llm_config import planner_llm
 
 load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -55,7 +56,7 @@ def generate_emojis(actions: List[str]) -> List[str]:
         prompt = (
             "You are an emoji translator. For each action in the numbered list below, "
             "Output must be a pure JSON array of strings. No prose, no comments, no extra keys."
-            "Each string MUST contain exactly 2 emoji characters back-to-back — no spaces, no punctuation, no words." 
+            "Each string MUST contain exactly two emoji characters back-to-back — no spaces, no punctuation, no words." 
             "Use only single-codepoint emojis with default emoji presentation (no sequences)."
             "Absolutely FORBIDDEN characters/sequences:"
             "- Zero Width Joiner (U+200D)"
@@ -66,10 +67,10 @@ def generate_emojis(actions: List[str]) -> List[str]:
             "- Avoid newly added emojis; choose widely supported ones (no “🪟”, etc.)."
             "- Do not output any letters, words, or spaces (e.g., NOT 'basket🥕')." 
             f"Actions:\n{actions_formatted}\n\n"
-            "Output Example:\n"
-            '["🚶‍♂️🌲", "📖🕯️", "😴🌙"]'
+            "Strictly following this output example without adding additional punctuation:\n"
+            '["🚶‍♂️🌲", "📖🕯️", "😴🌙", ...]'
         )
-        response = emoji_llm.invoke(prompt)
+        response = planner_llm.invoke(prompt)
         content = getattr(response, "content", "").strip()
         
         if "```json" in content:
@@ -106,7 +107,7 @@ def plan_prompt(background: str, today: Optional[str] = None) -> str:
     )
     return instruction
 
-def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_generation: bool = False) -> Dict[str, Any]:
+def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_generation: bool = False, auto_store: bool = True) -> Dict[str, Any]:
     system_msg = {"role": "system", "content": f"You are a planning assistant that breaks down plans into finer-grained actions."}
     user_msg = {"role": "user", "content": (
             f"Given the following plan description, break it down into finer-grained actions with provided time durations of specifically {duration_prompt} for each sentence.\n"
@@ -155,7 +156,7 @@ def decompose_plan(parent_plan: Dict[str, Any], duration_prompt: str, emoji_gene
         "modified_on": datetime.datetime.now().isoformat(),
         "parent_id": parent_plan.get("plan_id")
     }
-    if (emoji_generation):
+    if emoji_generation and auto_store:
         store_plan([plan], user_id=user_id)
     return plan
 
@@ -177,9 +178,20 @@ def init_plan(user_id: str, background: Optional[str], today: Optional[str] = No
     }
 
     #store_plan([top_plan], user_id=user_id)
-    child_plan = decompose_plan(top_plan, duration_prompt="1 hour", emoji_generation=False)   
-    child_plan_2 = decompose_plan(child_plan, duration_prompt="30 minutes", emoji_generation=True)      
+    child_plan = decompose_plan(top_plan, duration_prompt="1 hour", emoji_generation=False, auto_store=False)
+    child_plan_2 = decompose_plan(child_plan, duration_prompt="30 minutes", emoji_generation=True, auto_store=False)
     return {"top_plan": top_plan, "child_plan": child_plan, "child_plan_2": child_plan_2}
+
+def _generate_agent_plans(uid: str, persona: str, today: str) -> tuple:
+    """Worker: runs init_plan for one agent and returns (uid, plans_dict).
+    Called concurrently — no DB writes happen inside."""
+    try:
+        plans = init_plan(uid, background=persona, today=today)
+        return uid, plans
+    except Exception as e:
+        print(f"[ERROR] Plan generation failed for {uid}: {e}")
+        return uid, None
+
 
 if __name__ == "__main__":
     AGENT_STATE_DIR = os.path.join(BASE_DIR, "World_Environment", "agent_state.json")
@@ -188,14 +200,34 @@ if __name__ == "__main__":
         agent_data = json.load(f)
 
     agents = agent_data.get("agents")
-    for agent_id, agent_info in agents.items():
-        uid = agent_id
-        persona = agent_info.get("persona")    
-        now = datetime.datetime.now().replace(second=0, microsecond=0)
-        init_plan(uid, background=persona, today="2026-02-13")
-        print(f"Plan for {uid} stored.")
+    today_str = datetime.date.today().isoformat()
+    agent_items = [(uid, info.get("persona")) for uid, info in agents.items()]
+    max_workers = min(len(agent_items), 5)
 
-    print(f"Plan stored for all agents.")
+    # Phase 1 — generate all plans concurrently; At most 5 concurrent request
+    results: list = []
+    print(f"[Planner] Generating plans for {len(agent_items)} agents with {max_workers} workers...")
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Planner") as executor:
+        futures = {
+            executor.submit(_generate_agent_plans, uid, persona, today_str): uid
+            for uid, persona in agent_items
+        }
+        for future in as_completed(futures):
+            uid, plans = future.result()
+            if plans is not None:
+                results.append((uid, plans))
+                print(f"[Planner] Generated plan for {uid}")
+            else:
+                print(f"[Planner] Skipping store for {uid} due to generation error")
+
+    # Phase 2 — write all plans to DB sequentially (no concurrency issues)
+    print(f"[Planner] Storing plans for {len(results)} agents...")
+    for uid, plans in results:
+        child_plan_2 = plans["child_plan_2"]
+        store_plan([child_plan_2], user_id=uid)
+        print(f"[Planner] Stored plan for {uid}")
+
+    print(f"[Planner] Done. Plans stored for {len(results)}/{len(agent_items)} agents.")
 
 
 

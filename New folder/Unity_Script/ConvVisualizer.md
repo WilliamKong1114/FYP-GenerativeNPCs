@@ -137,7 +137,7 @@ public class ConvVisualizer : MonoBehaviour
         //Debug.Log($"[ConvVisualizer] Clicked conversation between {a1.name} and {a2.name}");
         if (DialogueManager.Instance != null)
         {
-            DialogueManager.Instance.StartDialogueSession();
+            DialogueManager.Instance.StartDialogueSession(a1.name);
         }
 
         MovementCommand cmd = new MovementCommand
