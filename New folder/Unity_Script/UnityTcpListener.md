@@ -19,6 +19,7 @@ public class MovementCommand
     public string method;      // Interaction method name
     public string color;       // Interaction parameter
     public string description; // Action description
+    public string display_time;
 }
 
 public class UnityTcpListener : MonoBehaviour
@@ -39,6 +40,7 @@ public class UnityTcpListener : MonoBehaviour
 
     void Start()
     {
+        Application.runInBackground = true;
         if (dispatcher == null)
         {
             dispatcher = GetComponent<UnityMultiAgentDispatcher>();

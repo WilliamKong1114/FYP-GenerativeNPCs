@@ -97,7 +97,7 @@ def update_tree():
 
     print("Environment Tree Updated.")
 
-def initialize_areas_json():
+def initialize_areas_db():
     tree = EnvironmentTree()
     tree.load()
     
@@ -114,19 +114,28 @@ def initialize_areas_json():
                 if node.name not in area_mapping:
                     area_mapping[node.name] = []
 
+    valid_area_names = set(area_mapping.keys())
+
     for area_name, obj_names in area_mapping.items():
         manager = area_state_manager.get_manager(area_name)
         current_objects = manager.get_area_state()
-        agents_in_area = manager.get_agents_in_area()
         
         for obj_name in obj_names:
             if obj_name not in current_objects:
-                manager.set_area_state(obj_name, "empty", None)
-        
-        manager.save_state()
+                manager.set_obj_state(obj_name, "empty", None)
     
-    print(f"[AreaStateManager] Synchronized {len(area_mapping)} area state files")
+    print(f"[AreaStateManager] Synchronized {len(area_mapping)} area DB(s)")
+
+    if os.path.exists(AREAS_DIR):
+        for filename in os.listdir(AREAS_DIR):
+            if filename.endswith(".db"):
+                stem = filename[:-3]
+                if stem not in valid_area_names:
+                    db_path = os.path.join(AREAS_DIR, filename)
+                    os.remove(db_path)
+                    area_state_manager.area_managers.pop(stem, None)
+                    print(f"[AreaStateManager] Removed obsolete DB: {filename}")
 
 if __name__ == "__main__":
     update_tree()
-    initialize_areas_json()
+    initialize_areas_db()

@@ -1,0 +1,12 @@
+{
+    "date": "2026-03-12",
+    "models": {
+        "openai/gpt-4o-mini": 37,
+        "openai/gpt-4.1-mini": 50,
+        "meta/Llama-3.2-11B-Vision-Instruct": 86,
+        "meta/Meta-Llama-3.1-8B-Instruct": 0,
+        "mistral-ai/Ministral-3B": 0,
+        "microsoft/Phi-4": 11,
+        "cohere/cohere-command-a": 0
+    }
+}

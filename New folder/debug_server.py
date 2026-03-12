@@ -55,6 +55,21 @@ def generate_conversation():
             "He was raised in a family known for their skill in maintaining tools and tending livestock, and from a young age he learned patience, precision, and the value of steady work. Over decades, Edric became respected for his reliability and quiet wisdom."
             "He enjoys repairing equipment for farmers, carving wooden utensils and small household items, and preparing simple herbal mixtures he learned from an elderly healer many years ago. His workshop—an aging shed filled with tools, scraps of wood, and half‑finished projects—is where he spends most afternoons."
             "His normal daily routine includes checking on neighbors’ tools that need fixing, tending a small patch of vegetables behind his home, taking quiet walks in the woods to gather materials, and chatting with travelers to hear news of faraway lands. In the evenings, he often sits by the communal fire, sharing stories or offering advice to younger villagers.")
+        },
+        {
+            "id": "Swithin Eldrede",
+            "persona":("Timid, easily startled.",
+            "Swithin Eldrede is a 46 year old villager who has lived his whole life in the small medieval settlement near the river, surrounded by pasturelands and the forest edge that both fascinates and terrifies him.",
+            "He grew up in a family that gathered berries, herbs, and mushrooms, but his nervous temperament made him cautious of every rustling leaf and shifting shadow.",
+            "He enjoys collecting herbs close to the village boundary, drying them carefully, weaving small grass charms to calm himself.",
+            "His typical day involves checking his small garden, picking herbs near the safer paths, avoiding dense woods, and asking neighbors if they have seen anything unusual that he should know about.",
+            "In the evenings, he sits close to the communal fire, clutching a warm cup of tea, listening anxiously to stories especially those he hopes does not keep him awake all night.")
+        },
+        {
+            "id": "Beowulf Warwicke",
+            "persona": ("Ordinary.",
+            "Beowulf Warwicke is a 70 year old villager who has spent his entire life in a modest medieval settlement nestled between rolling pasturelands and a river. Behind the village lie dense woodlands where he often walks to gather herbs and fallen branches.",
+            "He does not speak at all. Every day, he walks down to the riverside and simply sits there, doing nothing, watching the water flow. He remains until nightfall before quietly returning home. He repeats this routine without change, day after day.")
         }
     ]
 
@@ -66,30 +81,28 @@ def generate_conversation():
             "current_step": 0,
             "is_busy_until": 0,
             "is_chatting": False,
-            "active_task": None,    # Track running future
+            "is_reflecting": False,
+            "active_task": None,
         } for config in agents_config
     }
 
-    area_name = init_loc
-
     if init_loc != rec_loc:
         return jsonify({"status": "error", "message": f"Agents are in different areas: {init_loc} vs {rec_loc}. Conversation skipped."}), 400
-    
+
+    for agent_id in [initiator_id, receiver_id]:
+        if agent_id not in agent_executions:
+            return jsonify({"status": "error", "message": f"Unknown agent: {agent_id}"}), 400
+
+    area_name = init_loc
     group = [
         {"id": initiator_id, "persona": agent_executions[initiator_id]["persona"]},
         {"id": receiver_id, "persona": agent_executions[receiver_id]["persona"]}
     ]
 
-    dialogue_result = None
-    if conv_manager.start_conversation(area_name, group):
-        dialogue_result = conv_manager.handle_conversation(area_name, group, agent_executions)
-
-    dialogue = dialogue_result if dialogue_result else "No conversation generated"
-    
+    dialogue_lines = conv_manager.handle_conversation(area_name, group, agent_executions=agent_executions)
     return jsonify({
         "status": "success",
-        "dialogue": dialogue,
-        #"agent_executions": agent_executions,
+        "dialogue": dialogue_lines or [],
     })
     
 if __name__ == '__main__':

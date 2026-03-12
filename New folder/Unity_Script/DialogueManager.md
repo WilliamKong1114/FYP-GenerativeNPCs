@@ -13,10 +13,13 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
     public TMP_Text nameText;
     public TMP_Text dialogueText;
     public Image portraitImage;
+    public Button closeBtn;
 
     private List<string> dialogueLines = new List<string>();
     private int currentIndex = -1;
     private bool isWaitingForData = false;
+    private string sessionAgent;
+    private readonly Dictionary<string, Sprite> portraitCache = new Dictionary<string, Sprite>();
 
     void Awake()
     {
@@ -48,8 +51,9 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
         dialogueText.text = "Loading conversation" + dots;
     }
 
-    public void StartDialogueSession()
+    public void StartDialogueSession(string agentName)
     {
+        sessionAgent = agentName;
         dialoguePanel.SetActive(true);
         dialogueLines.Clear();
         currentIndex = -1;
@@ -109,16 +113,16 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
     void EndDialogue()
     {
         dialoguePanel.SetActive(false);
+        portraitCache.Clear();
         MovementCommand cmd = new MovementCommand
         {
             action = "conversation_finished",
-            agent = nameText.text
+            agent = sessionAgent
         };
 
         UnityTcpListener.SendToAgent(cmd.agent, JsonUtility.ToJson(cmd));
     }
 
-    private readonly Dictionary<string, Sprite> portraitCache = new Dictionary<string, Sprite>();
     void UpdatePortrait(string speakerName)
     {
         if (portraitCache.TryGetValue(speakerName, out Sprite sprite))
@@ -141,6 +145,17 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
         }
         return;
     }
-}
 
+    public void CloseDialoguePanel()
+    {
+        if (isWaitingForData)
+        {
+            dialoguePanel.SetActive(false);
+        }
+        else
+        {
+            EndDialogue();
+        }
+    }
+}
 ```

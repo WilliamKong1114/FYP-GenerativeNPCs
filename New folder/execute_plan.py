@@ -14,7 +14,7 @@ from typing import Annotated
 from cachetools import TTLCache
 from planner import get_plan
 from unity_comm import UnityClient
-from Secure.llm_config import skill_llm, observe_llm
+from Secure.llm_config import skill_llm, observe_llm, dialogue_llm
 from World_Environment.environment_tree import EnvironmentTree
 from World_Environment.agent_state_manager import AgentStateManager
 from World_Environment.area_state_manager import AreaSystem
@@ -23,12 +23,13 @@ from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
 from conversation_manager import ConversationManager
 from openai import APITimeoutError
 from chroma_client import get_client
+chroma_client = get_client(path="./chroma_db")
+
 from agent_memory import AgentMemoryManager
 import manage_data
 import reflection
 
 load_dotenv()
-chroma_client = get_client(path="./chroma_db")
 agent_state_manager = AgentStateManager()
 area_state_manager = AreaSystem()
 memory_manager = AgentMemoryManager()
@@ -164,7 +165,7 @@ def agent_node(state: State, config: RunnableConfig):
         - Determine when to ask questions to keep the conversation flowing, but avoid asking too many in a row.
     """
 
-    response = skill_llm.invoke([{"role": "system", "content": system_prompt}] + user_msgs)
+    response = dialogue_llm.invoke([{"role": "system", "content": system_prompt}] + user_msgs)
     return {"messages": [response]}
 
 tools = [
@@ -282,7 +283,6 @@ def resolve_and_execute_skill(action_desc, target_name, client, agent_id=None, a
     return 3.0
 
 shutdown = False
-chat_lock = threading.Lock()
 
 def find_target(action: str, agent_data):
     path_nodes = tree.find_suitable_location(action, agent_data)
@@ -337,91 +337,60 @@ def record_observation(agent_id: str, area_name: str, obj_name: str, action: str
     #reflection.check_reflect(agent_id, clock, agent_executions, client)
 
 def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_data, cur_time, conv_manager, agent_executions):
-
     prev_obj = agent_data.get("current_target")
     prev_area = agent_data.get("current_area")
+    agent_data["prev_target"] = prev_obj
+    agent_data["prev_area"] = prev_area
 
-    target_result = find_target(action, agent_data)
-    target_name, action_desc, area_name, obj_name = target_result
-    
+    target_name, action_desc, area_name, obj_name = find_target(action, agent_data)
+    area_manager = area_state_manager.get_manager(area_name)
+
     print(f"[{cur_time}] {agent_id}: {action} at {target_name}")
     client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
-
-    if prev_obj and prev_area:
+    if (area_name != prev_area):
+        area_manager.set_agent_in_area(agent_id, area_name, "enter")
         prev_area_manager = area_state_manager.get_manager(prev_area)
         with prev_area_manager.lock:
-            prev_area_manager.set_area_state(prev_obj, "empty", None)
-
-    #Observe area state
-    area_manager = area_state_manager.get_manager(area_name)
-    with area_manager.lock:
-        area_manager.load_state()
-        #area_state = area_manager.get_area_state()
-        #obs_agents = area_manager.get_agents_in_area()
-
-    #Check and claim object within area if needed
-    with area_manager.lock:
-        area_manager.load_state()
-        current_state = area_manager.get_area_state()
-        obj_info = current_state.get(obj_name)
-
-        if obj_info.get("state") == "occupied" and obj_info.get("occupied_by") != agent_id:
-            print(f"[{cur_time}] {agent_id}: {obj_name} is occupied by {obj_info.get('occupied_by')}")
-            return 3.0
-
-        area_manager.set_area_state(obj_name, "occupied", agent_id)
-        agent_data["current_target"] = obj_name
-        agent_data["current_area"] = area_name
-        agent_data["prev_target"] = prev_obj
-        agent_data["prev_area"] = prev_area
+            prev_area_manager.set_obj_state(prev_obj, "empty", None)
+            prev_area_manager.set_agent_in_area(agent_id, prev_area, "exit")
 
     record_observation(agent_id, area_name, obj_name, action, client=client, agent_executions=agent_executions)
     reflection.check_reflect(agent_id, clock, agent_executions, client)
-    
-    #time.sleep(2)
-    #duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id, agent_data)
-    
+
+    #Observe area state
     with area_manager.lock:
-        area_manager.load_state() 
+        obj_info = area_manager.get_area_state().get(obj_name)
+
+        if not obj_info:
+             obj_info = {"state": "empty"}
+
+        if obj_info.get("state") == "occupied" and obj_info.get("occupied_by") != agent_id:
+            print(f"[{cur_time}] {agent_id}: {obj_name} is occupied by {obj_info.get('occupied_by')}")
+            agent_data["current_target"] = obj_name
+            agent_data["current_area"] = area_name
+        else:
+            area_manager.set_obj_state(obj_name, "occupied", agent_id)
+
+        #time.sleep(2)
+        #duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id, agent_data)
         agents_nearby = area_manager.get_agents_in_area()
         potential_partners = [a for a in agents_nearby if a != agent_id]
+
+    agent_data["current_target"] = obj_name
+    agent_data["current_area"] = area_name
 
     if potential_partners and not agent_executions[agent_id]["is_chatting"]:
         partner_id = potential_partners[0]
 
-        if agent_id > partner_id:  #Avoid both agent running the logic
+        # Skip if partner is already in a conversation
+        if agent_executions[partner_id]["is_chatting"]:
             return
 
-        with chat_lock:
-            if not agent_executions[agent_id]["is_chatting"] and not agent_executions[partner_id]["is_chatting"]:
-                agent_executions[agent_id]["is_chatting"] = True
-                agent_executions[partner_id]["is_chatting"] = True
-                should_start = True
-            else:
-                should_start = False
-        
-        if should_start:
-            client.move_to(target_name, "", action, agent_id, wait_for_response=True)
-        
-            client.set_chatting(agent_id, "start");
-            client.set_chatting(partner_id, "start");
-
-            group = [
-                {"id": agent_id, "persona": agent_executions[agent_id]["persona"]}, 
-                {"id": partner_id, "persona": agent_executions[partner_id]["persona"]}
-            ]
-
-            if conv_manager.start_conversation(area_name, group):
-                print(f"[{cur_time}] {agent_id} found {partner_id} in {area_name}. Starting chat...")
-                conv_manager.handle_conversation(area_name, group, agent_executions=agent_executions, client=client)            
-            
-            client.set_chatting(agent_id, "stop");
-            client.set_chatting(partner_id, "stop");
-            
-            with chat_lock:
-                agent_executions[agent_id]["is_chatting"] = False
-                agent_executions[partner_id]["is_chatting"] = False
-            
+        group = [
+            {"id": agent_id, "persona": agent_executions[agent_id]["persona"]},
+            {"id": partner_id, "persona": agent_executions[partner_id]["persona"]}
+        ]
+        conv_manager.check_conversation(area_name, group, agent_executions, client)
         state_manager.set_agent_state(agent_id, action_desc)
     #return duration
   
@@ -440,7 +409,7 @@ def main():
     shutdown = False    
     
     client = UnityClient()
-    area_state_manager.start_listener(5006)
+    #area_state_manager.start_listener(5006)
     conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False)
     
     num_agents = len(agents_config)
@@ -531,7 +500,7 @@ def main():
     finally:        
         executor.shutdown(wait=False, cancel_futures=True)
         print("[SHUTDOWN] All agent tasks completed")
-        area_state_manager.stop_listener()
+        #area_state_manager.stop_listener()
         client.close()
         print("[SHUTDOWN] All connections closed")
         agent_state_manager.reset_agents()
@@ -539,7 +508,4 @@ def main():
         print("[SHUTDOWN] Complete")
 
 if __name__ == "__main__":
-    try:
-        main()
-    except SystemExit:
-        print("\n[EXIT] Program terminated")
+    main()
