@@ -36,6 +36,7 @@ def generate_conversation():
     receiver_id = data.get("receiver")
     init_loc = data.get("initLoc")
     rec_loc = data.get("recLoc")
+    session_id = data.get("session_id")
     
     agents_config = [
         {
@@ -99,7 +100,7 @@ def generate_conversation():
         {"id": receiver_id, "persona": agent_executions[receiver_id]["persona"]}
     ]
 
-    dialogue_lines = conv_manager.handle_conversation(area_name, group, agent_executions=agent_executions)
+    dialogue_lines = conv_manager.handle_conversation(area_name, group, agent_executions=agent_executions, session_id=session_id)
     return jsonify({
         "status": "success",
         "dialogue": dialogue_lines or [],

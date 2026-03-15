@@ -52,14 +52,19 @@ def build_client_github(model_name: str, temperature: float, max_tokens: int = 4
         max_retries=2
     )
 
-#meta/Meta-Llama-3.1-8B-Instruct
 #
-reflect_llm = build_client_github("openai/gpt-4o-mini", 0.8)
-dialogue_llm = build_client_github("openai/gpt-4.1-mini", 0.8, 4096)
+#mistral-ai/Codestral-2501 | code generation
+#meta/Llama-3.2-11B-Vision-Instruct | img recognition
+# | general purpose
+#cohere/Cohere-command-r-08-2024 | code generation
+#openai/gpt-4.1-mini
+reflect_llm = build_client_github("mistral-ai/mistral-medium-2505", 0.2)
+dialogue_llm = build_client_github("openai/gpt-4o-mini", 0.8, 4096)
 planner_llm = build_client_github("cohere/cohere-command-a", 0.8, 4096)
-skill_llm = build_client_github("meta/Llama-3.2-11B-Vision-Instruct", 0.3)
+skill_llm = build_client_github("meta/Meta-Llama-3.1-8B-Instruct", 0.3, 4096)
 observe_llm = build_client_github("mistral-ai/Ministral-3B", 0.8, 2048)
 routing_llm = build_client_github("microsoft/Phi-4", 0.3)
+impression_llm = build_client_github("openai/gpt-4.1-nano", 0.8, 4096)
 
 if __name__ == "__main__":
     if os.path.exists(COUNTER_FILE):

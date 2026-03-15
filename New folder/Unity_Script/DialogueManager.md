@@ -1,9 +1,11 @@
 ```csharp
+
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 using System.Collections.Generic;
 using UnityEngine.EventSystems;
+using System.Linq;
 
 public class DialogueManager : MonoBehaviour, IPointerClickHandler
 {
@@ -18,8 +20,26 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
     private List<string> dialogueLines = new List<string>();
     private int currentIndex = -1;
     private bool isWaitingForData = false;
+    private bool isSessionActive = false;
     private string sessionAgent;
+    private string partnerAgent;
     private readonly Dictionary<string, Sprite> portraitCache = new Dictionary<string, Sprite>();
+
+    [System.Serializable]
+    public class ConversationRecord
+    {
+        public List<string> agent_ids;
+        public List<string> lines;
+    }
+
+    private List<ConversationRecord> convList = new List<ConversationRecord>();
+
+    private string GetConvKey(string a,  string b)
+    {
+        var agents = new List<string> { a, b };
+        agents.Sort();
+        return string.Join("_", agents);
+    }
 
     void Awake()
     {
@@ -51,27 +71,86 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
         dialogueText.text = "Loading conversation" + dots;
     }
 
-    public void StartDialogueSession(string agentName)
+    public void StartDialogueSession(string agent1, string agent2)
     {
-        sessionAgent = agentName;
+        sessionAgent = agent1;
+        partnerAgent = agent2;
+        isSessionActive = true;
         dialoguePanel.SetActive(true);
         dialogueLines.Clear();
         currentIndex = -1;
         isWaitingForData = true;
         dotCount = 0;
         timer = 0f;
-        UpdateLoadingText();
-    }
+        //UpdateLoadingText();
 
-    public void UpdateDialogue(List<string> lines)
-    {
-        if (lines == null || lines.Count == 0) return;
-        dialogueLines = lines;
-        isWaitingForData = false;
-        if (currentIndex == -1)
+        ConversationRecord match = convList.LastOrDefault(c => c.agent_ids.Contains(agent1) && c.agent_ids.Contains(agent2));
+        if (match != null)
         {
+            dialogueLines = new List<string>(match.lines);
+            isWaitingForData = false;
             currentIndex = 0;
             DisplayLine();
+        }
+
+        convList.RemoveAll(c => c.agent_ids.Contains(agent1) || c.agent_ids.Contains(agent2));
+
+        if (isWaitingForData)
+        {
+            UpdateLoadingText();
+        }
+    }
+
+    public bool HasActiveSession()
+    {
+        return isSessionActive;
+    }
+
+    public void ShowDialoguePanel()
+    {
+        if (!isSessionActive) return;
+
+        dialoguePanel.SetActive(true);
+
+        if (isWaitingForData)
+        {
+            UpdateLoadingText();
+            return;
+        }
+
+        if (dialogueLines != null && dialogueLines.Count > 0 && currentIndex >= 0)
+        {
+            DisplayLine();
+        }
+    }
+
+    public void UpdateDialogue(List<string> agent_ids, List<string> lines)
+    {
+        if (agent_ids == null || agent_ids.Count < 2) return;
+
+        convList.Add(new ConversationRecord { agent_ids = agent_ids, lines = lines });
+
+        if (isSessionActive && isWaitingForData)
+        {
+            if (agent_ids.Contains(sessionAgent) && agent_ids.Contains(partnerAgent))
+            {
+                dialogueLines = new List<string>(lines);
+                isWaitingForData = false;
+
+                convList.RemoveAll(c => c.agent_ids.Contains(sessionAgent) || c.agent_ids.Contains(partnerAgent));
+
+                if (!dialoguePanel.activeSelf)
+                {
+                    EndDialogue();
+                    return;
+                }
+
+                if (currentIndex == -1)
+                {
+                    currentIndex = 0;
+                    DisplayLine();
+                }
+            }
         }
     }
 
@@ -86,9 +165,7 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
         }
         else
         {
-            dialoguePanel.SetActive(false);
             EndDialogue();
-            currentIndex = -1;
         }
     }
 
@@ -112,8 +189,15 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
 
     void EndDialogue()
     {
+        if (!isSessionActive) return;
+
+        isSessionActive = false;
+        isWaitingForData = false;
+        currentIndex = -1;
+        dialogueLines.Clear();
         dialoguePanel.SetActive(false);
         portraitCache.Clear();
+
         MovementCommand cmd = new MovementCommand
         {
             action = "conversation_finished",
@@ -138,7 +222,8 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
             portraitImage.sprite = loadedPortrait;
             portraitCache[speakerName] = loadedPortrait;
             portraitImage.gameObject.SetActive(true);
-        } else
+        }
+        else
         {
             Debug.Log("Portrait not found");
             portraitImage.gameObject.SetActive(false);
@@ -148,14 +233,20 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
 
     public void CloseDialoguePanel()
     {
-        if (isWaitingForData)
+        if (isSessionActive && isWaitingForData)
         {
             dialoguePanel.SetActive(false);
+            return;
         }
-        else
+
+        if (isSessionActive && (dialogueLines == null || dialogueLines.Count == 0))
         {
-            EndDialogue();
+            dialoguePanel.SetActive(false);
+            return;
         }
+
+        EndDialogue();
     }
 }
+
 ```

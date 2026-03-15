@@ -16,14 +16,6 @@ class AgentMemoryManager:
     def __init__(self, db_path: str = DB_PATH):
         self.conn = sqlite3.connect(str(db_path), isolation_level=None, check_same_thread=False)
         self.user_id = str(uuid.uuid4()) #random user ID
-        self._ensure_schema()
-
-    def _ensure_schema(self):
-        for col, col_type in [("place", "TEXT"), ("createdOn", "TEXT"), ("ts", "INTEGER")]:
-            try:
-                self.conn.execute(f"ALTER TABLE observation ADD COLUMN {col} {col_type}")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
 
     def add_conversation_log(self, participants: list, log_string: str, place: str):        
         log_id = str(uuid.uuid4())
@@ -40,6 +32,21 @@ class AgentMemoryManager:
         cur = self.conn.execute(
             "SELECT participants, log_string, place, createdOn FROM conversation_logs WHERE participants LIKE ? ORDER BY ts DESC LIMIT ?",
             (f'%"{user_id}"%', limit),
+        )
+        return cur.fetchall()
+
+    def get_conv_logs_between(self, agent_a: str, agent_b: str, limit: int = 1):
+        conv_pair = [agent_a, agent_b]
+        if not conv_pair:
+            return []
+
+        pair_1 = json.dumps(conv_pair)
+        pair_2 = json.dumps(conv_pair[::-1])
+
+        cur = self.conn.execute(
+            "SELECT id, participants, log_string, place, createdOn, ts "
+            "FROM conversation_logs WHERE participants IN (?, ?) ORDER BY ts DESC LIMIT ?",
+            (pair_1, pair_2, limit),
         )
         return cur.fetchall()
 

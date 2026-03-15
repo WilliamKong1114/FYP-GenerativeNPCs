@@ -14,33 +14,34 @@ from World_Environment.simulation_clock import SimulationClock
 load_dotenv()
 
 CONVERSATION_COOLDOWN = 200
-PROBABILITY_TO_TALK = 1
 MIN_CONVERSATION_TURNS = 6
 MAX_TERNS = 16
 EXTRA_TURNS_PER_PARTICIPANT = 2
 
 class ConversationManager:
-    def __init__(self, graph=None, clock: "SimulationClock"=None, debug_mode: bool = False):
-        self.last_conversation_time = {}
+    def __init__(self, graph=None, clock: "SimulationClock"=None, debug_mode: bool = False, preference_manager=None):
         self.memory_manager = AgentMemoryManager()
         self.llm = skill_llm
         self.clock = clock
         self.graph = graph
         self.debug_mode = debug_mode
+        self.preference_manager = preference_manager
         self.db_lock = threading.Lock()
+        self._cooldown_lock = threading.Lock()
         self._pending_conversations: set[frozenset] = set()
         self._pending_lock = threading.Lock()
 
-    def check_conversation(self, area: str, group: list, agent_executions: dict, client=None) -> bool:
-        if not self.start_conversation(area, group):
-            return False
-
+    def check_conversation(self, area: str, group: list, agent_executions: dict, client=None, session_id: str = None) -> bool:
         agent_ids = [a["id"] for a in group]
         pair_key = frozenset(agent_ids)
 
         with self._pending_lock:
             if pair_key in self._pending_conversations:
                 return False
+
+            if not self.start_conversation(area, group, agent_executions):
+                return False
+
             self._pending_conversations.add(pair_key)
 
         for a_id in agent_ids:
@@ -51,8 +52,9 @@ class ConversationManager:
             try:
                 if client:
                     for a_id in agent_ids:
-                        client.set_chatting(a_id, "start")
-                self.handle_conversation(area, group, agent_executions=agent_executions, client=client)
+                        partner_id = next((pid for pid in agent_ids if pid != a_id), None)
+                        client.set_chatting(a_id, "start", partner_id=partner_id)
+                self.handle_conversation(area, group, agent_executions=agent_executions, client=client, session_id=session_id)
                 if client:
                     for a_id in agent_ids:
                         client.set_chatting(a_id, "stop")
@@ -91,10 +93,7 @@ class ConversationManager:
             response_content = messages[-1].content
         return response_content
 
-    def _get_group_key(self, agent_ids):
-        return tuple(sorted(agent_ids))
-
-    def handle_conversation(self, area: str, group: list, agent_executions: dict, client=None) -> None:
+    def handle_conversation(self, area: str, group: list, agent_executions: dict, client=None, session_id: str = None) -> None:
         agent_ids = [a["id"] for a in group]
         #group_key = self._get_group_key(agent_ids)
 
@@ -121,6 +120,10 @@ class ConversationManager:
             #if client: 
                 #client.show_dialogue("...", agent_id=speaker)
 
+            if client:
+                pair_key = tuple(sorted(agent_ids))
+                client.dialogue_cache[pair_key] = list(dialogue_lines)
+
         for a_id in agent_ids:
             if a_id in agent_executions:
                 agent_executions[a_id]["is_chatting"] = False
@@ -130,28 +133,29 @@ class ConversationManager:
             return debug_convo
         
         if client and dialogue_lines:
-            client.update_dialogue(agent_ids[0], dialogue_lines)
+            client.update_dialogue(agent_ids[0], dialogue_lines, agent_ids)
 
         print(f"--- Conversation Ended: {', '.join(agent_ids)} ---")
 
-    def start_conversation(self, areaName: str, group: list):        
+    def start_conversation(self, areaName: str, group: list, agent_executions: dict):
         agent_ids = [p['id'] for p in group]
-        group_key = self._get_group_key(agent_ids)
-        last_time = self.last_conversation_time.get(group_key, 0)
-        
-        if time.time() - last_time < CONVERSATION_COOLDOWN:
-            if self.debug_mode:
-                print(f"\n--- No Conversation: {', '.join(agent_ids)} at {areaName} ---")
-            return False
-        
-        if random.uniform(0.1, 1.0) > PROBABILITY_TO_TALK:
-            self.last_conversation_time[group_key] = time.time() - (CONVERSATION_COOLDOWN - 10)
-            if self.debug_mode:
-                print(f"\n--- No Conversation: {', '.join(agent_ids)} at {areaName} ---")
-            return False
 
-        self.last_conversation_time[group_key] = time.time()
-        return True
+        with self._cooldown_lock:
+            now = time.time()
+            for agent_id in agent_ids:
+                agent_data = agent_executions.get(agent_id)
+                if agent_data is None:
+                    return False
+
+                last_time = float(agent_data.get("last_conv_time", 0) or 0)
+                if now - last_time < CONVERSATION_COOLDOWN:
+                    if self.debug_mode:
+                        print(f"\n--- No Conversation: {', '.join(agent_ids)} at {areaName} ---")
+                    return False
+
+            for agent_id in agent_ids:
+                agent_executions[agent_id]["last_conv_time"] = now
+            return True
 
     def summarize_conversation_and_store(self, user_id: str, raw_log: str = None, log_id: str = None) -> str:
         if self.debug_mode:
@@ -191,13 +195,15 @@ class ConversationManager:
         summaries = data.get("summaries")
 
         last_summary = ""
-        current_game_hours = self.clock.get_sim_hour()
+        if self.clock:
+            current_game_hours = self.clock.get_sim_hour()
 
         for item in summaries:
             description = item.get("description")
             importance = item.get("importance", 5)
 
-            manage_data.add_memories([description], user_id=user_id, importance=importance, game_hour=current_game_hours)
+            if self.clock:
+                manage_data.add_memories([description], user_id=user_id, importance=importance, game_hour=current_game_hours)
             self.memory_manager.save_summary(user_id=user_id, summary=description, importance=importance, log_id=log_id)
 
             #print(f"[{user_id}]: {description} (Imp: {importance})")
@@ -257,8 +263,6 @@ class ConversationManager:
             return
         
         agent_ids = [p['id'] for p in participants]
-        group_key = self._get_group_key(agent_ids)
-        #self.last_conversation_time[group_key] = time.time()
         max_turns = MAX_TERNS + (len(participants) * EXTRA_TURNS_PER_PARTICIPANT)
         conv_id = str(uuid.uuid4())[:8]
         starter = random.choice(participants)
@@ -307,11 +311,13 @@ class ConversationManager:
                 if not others:
                     break
                 current_speaker = random.choice(others)
-            self.record_conversation(agent_ids, dialogue_history, area)
+            
+            agent_personas = {p['id']: p['persona'] for p in participants}
+            self.record_conversation(agent_ids, dialogue_history, area, max_turns, agent_personas)
         except Exception as e:
-            print(f"Error during conversation: {e}")
+            print(f"Error during conversation: {e}\n{traceback.format_exc()}")
 
-    def record_conversation(self, participants, dialogue, place):
+    def record_conversation(self, participants, dialogue, place, max_turns=None, agent_personas=None):
         if not dialogue:
             return
         
@@ -319,15 +325,26 @@ class ConversationManager:
             print(f"(debug) conversation log skipped")
             return
         
-        with self.db_lock:
-            try:
-                log_parts = [f'{turn["speaker"]}: "{turn["text"]}"' for turn in dialogue]
-                log_string = "; ".join(log_parts)
-                log_id = self.memory_manager.add_conversation_log(participants, log_string, place)
-                for p in participants:
-                    self.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
+        log_parts = [f'{turn["speaker"]}: "{turn["text"]}"' for turn in dialogue]
+        log_string = "; ".join(log_parts)
 
-                print(f"Saved conversation logs and summaries for {participants}")
-            except Exception as e:
-                print(f"Error saving conversation: {e}")
+        if self.preference_manager and agent_personas:
+            for i in range(len(participants)):
+                for j in range(len(participants)):
+                    if i == j: continue
+                    agent_a = participants[i]
+                    agent_b = participants[j]
+                    
+                    score_a = self.preference_manager.get_preference_score(agent_a, agent_b)
+                    if score_a is None:
+                        self.preference_manager.init_impression(agent_a, agent_personas[agent_a], agent_b, log_string)
+                    else:
+                        self.preference_manager.update_impression(agent_a, agent_personas[agent_a], agent_b, score_a, log_string)
+
+        with self.db_lock:
+            log_id = self.memory_manager.add_conversation_log(participants, log_string, place)
+            for p in participants:
+                self.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
+
+            print(f"Saved conversation logs and summaries for {participants}")
                 

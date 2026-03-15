@@ -2,6 +2,7 @@ import socket
 import json
 import threading
 import time
+from agent_memory import AgentMemoryManager
 
 class UnityClient:    
     def __init__(self, host: str = "127.0.0.1", port: int = 5005, timeout: float = 2.0, default_agent_id: str = None):
@@ -11,6 +12,21 @@ class UnityClient:
         self.default_agent_id = default_agent_id
         self._connections = {}
         self._connection_lock = threading.Lock()
+        #self._state_lock = threading.Lock()
+        #self._inflight_requests = set()
+        self.dialogue_cache = {}
+
+    @staticmethod
+    def _cache_key(pair_key: tuple, session_id: str = None):
+        if session_id:
+            return (pair_key, str(session_id))
+        return pair_key
+
+    @staticmethod
+    def _canonical_pair(agent_a: str, agent_b: str):
+        if not agent_a or not agent_b:
+            return None
+        return tuple(sorted((str(agent_a), str(agent_b))))
         
     def _get_connection(self, agent_id: str):
         with self._connection_lock:
@@ -35,26 +51,32 @@ class UnityClient:
         payload = json.dumps(cmd, separators=(',', ':')) + "\n"
         
         for attempt in range(2 if retry else 1):
-            sock = None
             sock = self._get_connection(agent_id)
             if sock is None:
                 raise ConnectionError(f"No connection for {agent_id}")
-            
-            sock.settimeout(self.timeout)
-            sock.sendall(payload.encode('utf-8'))
-            response = None
-            if wait_for_response:
-                response_data = b""
-                while True:
-                    chunk = sock.recv(4096)
-                    if not chunk:
-                        break       #close connection
-                    response_data += chunk
-                    if b"\n" in response_data:
-                        break       #end of message
-                if response_data:
-                    response = json.loads(response_data.decode('utf-8').strip())
-            return response
+
+            try:
+                sock.settimeout(self.timeout)
+                sock.sendall(payload.encode('utf-8'))
+                response = None
+                if wait_for_response:
+                    response_data = b""
+                    while True:
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            break       #close connection
+                        response_data += chunk
+                        if b"\n" in response_data:
+                            break       #end of message
+                    if response_data:
+                        response = json.loads(response_data.decode('utf-8').strip())
+                return response
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                self._close_connection(agent_id)
+                if attempt == (1 if retry else 0):
+                    raise
+
+        return None
         
     def close(self):
         with self._connection_lock:
@@ -63,9 +85,6 @@ class UnityClient:
                     sock.close()
                     #print(f"[C] Closed connection for {agent_id}")
             self._connections.clear()
-
-    """ def get_state(self):
-        return self.send_command({"action": "get_state"}, wait_for_response=True)"""
 
     def build_and_send(self, action: str, agent_id: str = None, target: str = None, content: str = None, display_time: float = None, wait_for_response: bool = False, **kwargs):
         cmd = {"action": action, **kwargs}
@@ -77,7 +96,7 @@ class UnityClient:
             cmd["content"] = content
         if display_time:
             cmd["display_time"] = display_time
-        self.send_command(cmd, agent_id=agent_id, wait_for_response=wait_for_response)
+        return self.send_command(cmd, agent_id=agent_id, wait_for_response=wait_for_response)
 
     def move_to(self, target: str, content: str = None, description: str = None, agent_id: str = None, wait_for_response: bool = False):
         self.build_and_send("move_to", agent_id, target=target, content=content, description=description)
@@ -85,8 +104,11 @@ class UnityClient:
             return self.wait_for_arrival(agent_id, timeout=20.0)
         return True
     
-    def set_chatting(self, agent_id: str = None, content: str = None):
-        self.build_and_send("set_chatting", agent_id=agent_id, content=content)
+    def set_chatting(self, agent_id: str = None, content: str = None, partner_id: str = None):
+        kwargs = {}
+        if partner_id:
+            kwargs["partner"] = partner_id
+        self.build_and_send("set_chatting", agent_id=agent_id, content=content, **kwargs)
 
     def show_dialogue(self, content: str, agent_id: str = None, display_time: float = None):
         self.build_and_send("show_dialogue", agent_id, content=content, display_time=display_time)
@@ -100,18 +122,27 @@ class UnityClient:
     def stop(self, agent_id: str = None):
         self.build_and_send("stop", agent_id)
 
-    def update_dialogue(self, agent_id: str, dialogue_lines: list):
+    def update_dialogue(self, agent_id: str, dialogue_lines: list, agent_ids: list):
         dialogues = "\n".join(dialogue_lines)
-        self.build_and_send("update_dialogue", agent_id=agent_id, content=dialogues)
+        kwargs = {"content": dialogues}
+        kwargs["agent_ids"] = agent_ids
+        self.build_and_send("update_dialogue", agent_id=agent_id, **kwargs)
 
     def handle_incoming_command(self, command_dict, agent_executions):
         action = command_dict.get("action")
         agent_id = command_dict.get("agent")
         partner_id = command_dict.get("partner")
+        pair_id = command_dict.get("pair_id")
+                
+        if action == "conversation_finished":
+            if agent_id and agent_id in agent_executions:
+                agent_executions[agent_id]["is_chatting"] = False
+                agent_executions[agent_id]["is_busy_until"] = time.time() + 1
 
-        if action == "request_conversation" and agent_executions[agent_id]["is_chatting"] == True and agent_executions[partner_id]["is_chatting"] == True:
-            #print(f"[TCP] Waiting for user to finish reading conversation...")
-            self.wait_for_conv_finish(agent_id)
+            if partner_id and partner_id in agent_executions:
+                agent_executions[partner_id]["is_chatting"] = False
+                agent_executions[partner_id]["is_busy_until"] = time.time() + 1
+            return
 
     def receive_msg(self, agent_id: str, timeout: float = 2.0):
         sock = self._get_connection(agent_id)
@@ -152,6 +183,9 @@ class UnityClient:
                     cmd = json.loads(msg)
                     self.handle_incoming_command(cmd, agent_executions)
             except json.JSONDecodeError:
+                continue
+            except Exception as e:
+                print(f"[TCP] Failed to handle incoming command for {agent_id}: {e}")
                 continue
 
     def wait_for_arrival(self, agent_id: str, timeout: float = 20.0):        

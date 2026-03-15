@@ -169,8 +169,13 @@ public class DebugControlPanel : EditorWindow
                 GameObject a2 = GameObject.Find(selectedAgents[1].id);
                 if (a1 && a2)
                 {
-                    a1.GetComponent<SimAgent>().IsInConversation = true;
-                    a2.GetComponent<SimAgent>().IsInConversation = true;
+                    SimAgent s1 = a1.GetComponent<SimAgent>();
+                    SimAgent s2 = a2.GetComponent<SimAgent>();
+                    if (s1 != null && s2 != null)
+                    {
+                        s1.SetConversationState(true, s2.name);
+                        s2.SetConversationState(true, s1.name);
+                    }
                     Debug.Log($"[Debug] Visualizer flags enabled for {a1.name} and {a2.name}");
                 }
             }
@@ -188,8 +193,10 @@ public class DebugControlPanel : EditorWindow
                 GameObject a2 = GameObject.Find(selectedAgents[1].id);
                 if (a1 && a2)
                 {
-                    a1.GetComponent<SimAgent>().IsInConversation = false;
-                    a2.GetComponent<SimAgent>().IsInConversation = false;
+                    SimAgent s1 = a1.GetComponent<SimAgent>();
+                    SimAgent s2 = a2.GetComponent<SimAgent>();
+                    if (s1 != null) s1.SetConversationState(false);
+                    if (s2 != null) s2.SetConversationState(false);
                     Debug.Log($"[Debug] Visualizer flags disabled for {a1.name} and {a2.name}");
                 }
             }

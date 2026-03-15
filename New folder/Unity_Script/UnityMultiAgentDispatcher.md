@@ -1,12 +1,14 @@
 ```csharp
 
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 public class UnityMultiAgentDispatcher : MonoBehaviour
 {
     public void HandleCommand(MovementCommand cmd)
     {
+        //List<List<string>> convList = new List<List<string>>();
         GameObject agentObj = GameObject.Find(cmd.agent);
         if (agentObj == null)
         {
@@ -30,9 +32,9 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
             case "update_dialogue":
                 if (DialogueManager.Instance != null && !string.IsNullOrEmpty(cmd.content))
                 {
-                    string[] lines = cmd.content.Split(new[] { '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
+                    string[] lines = cmd.content.Split(new[] {'\n'}, System.StringSplitOptions.RemoveEmptyEntries);
                     List<string> linesList = new List<string>(lines);
-                    DialogueManager.Instance.UpdateDialogue(linesList);
+                    DialogueManager.Instance.UpdateDialogue(cmd.agent_ids, linesList);
                 }
                 break;
 
@@ -41,7 +43,9 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
                 break;
 
             case "set_chatting":
-                simAgent.IsInConversation = (cmd.content == "start");
+                bool isChatting = (cmd.content == "start");
+                string partner = isChatting ? cmd.partner : null;
+                simAgent.SetConversationState(isChatting, partner);
                 break;
 
             case "stop":

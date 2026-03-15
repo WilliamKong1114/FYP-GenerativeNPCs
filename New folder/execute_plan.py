@@ -1,4 +1,4 @@
-import sqlite3, json, time, re, signal, datetime, threading, hashlib
+import sqlite3, json, os, time, re, signal, datetime, threading, hashlib
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
@@ -21,6 +21,7 @@ from World_Environment.area_state_manager import AreaSystem
 from World_Environment.simulation_clock import SimulationClock
 from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
 from conversation_manager import ConversationManager
+from preference_manager import PreferenceManager
 from openai import APITimeoutError
 from chroma_client import get_client
 chroma_client = get_client(path="./chroma_db")
@@ -354,7 +355,7 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
             prev_area_manager.set_obj_state(prev_obj, "empty", None)
             prev_area_manager.set_agent_in_area(agent_id, prev_area, "exit")
 
-    record_observation(agent_id, area_name, obj_name, action, client=client, agent_executions=agent_executions)
+    #record_observation(agent_id, area_name, obj_name, action, client=client, agent_executions=agent_executions)
     reflection.check_reflect(agent_id, clock, agent_executions, client)
 
     #Observe area state
@@ -380,9 +381,10 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
     agent_data["current_area"] = area_name
 
     if potential_partners and not agent_executions[agent_id]["is_chatting"]:
-        partner_id = potential_partners[0]
+        partner_id = preference_manager.select_partner(agent_id, potential_partners)
+        if not partner_id:
+            return
 
-        # Skip if partner is already in a conversation
         if agent_executions[partner_id]["is_chatting"]:
             return
 
@@ -395,6 +397,10 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
     #return duration
   
 def main():
+    global preference_manager
+    preference_manager = PreferenceManager()
+
+    agents_state = agent_state_manager.get_agent_state()
     agents_config = [
         {
             "id": name,
@@ -402,7 +408,7 @@ def main():
             "home_node": data["home_node"],
             "home_area": data["home_area"]
         }
-        for name, data in agent_state_manager.get_agent_state().items()
+        for name, data in agents_state.items()
     ]
 
     global shutdown
@@ -410,7 +416,8 @@ def main():
     
     client = UnityClient()
     #area_state_manager.start_listener(5006)
-    conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False)
+    conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False, preference_manager=preference_manager)
+    client.conv_manager = conv_manager  # Inject for handling incoming requests
     
     num_agents = len(agents_config)
     max_workers = min(num_agents + 1, 20)
@@ -423,6 +430,7 @@ def main():
             "emojis": [],
             "current_step": 0,
             "is_busy_until": 0,
+            "last_conv_time": 0,
             "is_chatting": False,
             "is_reflecting": False,
             "active_task": None,    # Track running future

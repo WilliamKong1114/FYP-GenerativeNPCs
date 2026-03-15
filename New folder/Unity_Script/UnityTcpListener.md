@@ -20,6 +20,7 @@ public class MovementCommand
     public string color;       // Interaction parameter
     public string description; // Action description
     public string display_time;
+    public string session_id;
 }
 
 public class UnityTcpListener : MonoBehaviour

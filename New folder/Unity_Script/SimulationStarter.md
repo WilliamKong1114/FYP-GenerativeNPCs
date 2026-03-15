@@ -15,6 +15,7 @@ public class ConversationRequest
     public string initLoc;
     public string recLoc;
     public string context;
+    public string session_id;
 }
 
 public class SimulationStarter : MonoBehaviour
@@ -116,6 +117,7 @@ public class SimulationStarter : MonoBehaviour
     public IEnumerator RequestConversation(string initiator, string receiver, string initLoc, string recLoc, string context = "Casual chat")
     {
         string url = $"{backendUrl}/generate_conversation";
+        string sessionId = System.Guid.NewGuid().ToString();
 
         GameObject initObj = GameObject.Find(initiator);
         GameObject recObj = GameObject.Find(receiver);
@@ -128,12 +130,18 @@ public class SimulationStarter : MonoBehaviour
             receiver = receiver,
             initLoc = initLoc,
             recLoc = recLoc,
-            context = context
+            context = context,
+            session_id = sessionId
         };
 
         string json = JsonUtility.ToJson(payload);
-        initAgent.IsInConversation = true;
-        recAgent.IsInConversation = true;
+        if (initAgent != null) initAgent.SetConversationState(true, receiver);
+        if (recAgent != null) recAgent.SetConversationState(true, initiator);
+
+        if (DialogueManager.Instance != null)
+        {
+            DialogueManager.Instance.StartDialogueSession(initiator, sessionId);
+        }
 
         using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
         {
@@ -155,7 +163,7 @@ public class SimulationStarter : MonoBehaviour
                 {
                     if (resp != null && resp.dialogue != null && resp.dialogue.Count != 0)
                     {
-                        DialogueManager.Instance.UpdateDialogueData(resp.dialogue);
+                        DialogueManager.Instance.UpdateDialogue(sessionId, resp.dialogue);
                     }
                     else
                     {
@@ -183,11 +191,9 @@ public class SimulationStarter : MonoBehaviour
             }
         }
 
-        if (initAgent != null) initAgent.IsInConversation = false;
-        if (recAgent != null) recAgent.IsInConversation = false;
+        if (initAgent != null) initAgent.SetConversationState(false);
+        if (recAgent != null) recAgent.SetConversationState(false);
     }
 }
-
-
 
 ```

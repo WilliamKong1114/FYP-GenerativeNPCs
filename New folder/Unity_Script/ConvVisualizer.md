@@ -1,9 +1,9 @@
 ```csharp
 
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
 
 public class ConvVisualizer : MonoBehaviour
 {
@@ -36,38 +36,55 @@ public class ConvVisualizer : MonoBehaviour
         HashSet<string> currentPairs = new HashSet<string>();
         checkPair(currentPairs);
         removePair(currentPairs);
-
-        foreach (var box in activeBoxes.Values)
-        {
-            if (box != null && box.activeSelf)
-            {
-                updateButtonText(box);
-            }
-        }
     }
 
     void checkPair(HashSet<string> currentPairs)
     {
         for (int i = 0; i < agents.Length; i++)
         {
-            for (int j = i + 1; j < agents.Length; j++)
+            SimAgent a1 = agents[i];
+            if (!a1.IsInConversation || string.IsNullOrEmpty(a1.ConversationPartner))
             {
-                SimAgent a1 = agents[i];
-                SimAgent a2 = agents[j];
+                continue;
+            }
 
-                if (a1.IsInConversation && a2.IsInConversation)
+            GameObject partnerObj = GameObject.Find(a1.ConversationPartner);
+            if (partnerObj == null)
+            {
+                continue;
+            }
+
+            SimAgent a2 = partnerObj.GetComponent<SimAgent>();
+            if (a2 == null)
+            {
+                continue;
+            }
+
+            if (!a2.IsInConversation || a2.ConversationPartner != a1.name)
+            {
+                continue;
+            }
+
+            string pairId = GetPairId(a1, a2);
+            if (currentPairs.Contains(pairId))
+            {
+                continue;
+            }
+
+            float dist = Vector3.Distance(a1.transform.position, a2.transform.position);
+            if (dist < convTrigger)
+            {
+                if (a1.dialoguePanel != null)
                 {
-                    float dist = Vector3.Distance(a1.transform.position, a2.transform.position);
-                    if (dist < convTrigger)
-                    {
-                        a1.dialoguePanel.SetActive(false);
-                        a2.dialoguePanel.SetActive(false);
-
-                        string pairId = GetPairId(a1, a2);
-                        currentPairs.Add(pairId);
-                        UpdateBox(pairId, a1, a2);
-                    }
+                    a1.dialoguePanel.SetActive(false);
                 }
+                if (a2.dialoguePanel != null)
+                {
+                    a2.dialoguePanel.SetActive(false);
+                }
+
+                currentPairs.Add(pairId);
+                UpdateBox(pairId, a1, a2);
             }
         }
     }
@@ -108,7 +125,7 @@ public class ConvVisualizer : MonoBehaviour
                 if (btn != null)
                 {
                     btn.onClick.RemoveAllListeners();
-                    btn.onClick.AddListener(() => OnConvButtonClicked(pairId, a1, a2));
+                    btn.onClick.AddListener(() => OnConvButtonClicked(a1, a2));
                 }
             }
         }
@@ -129,26 +146,20 @@ public class ConvVisualizer : MonoBehaviour
         else if (dotCount == 3) textStr = "...";
 
         TMP_Text tmpText = box.GetComponentInChildren<TMP_Text>();
-        tmpText.text = textStr;
+        if (tmpText != null)
+        {
+            tmpText.text = textStr;
+        }
     }
 
-    void OnConvButtonClicked(string pairId, SimAgent a1, SimAgent a2)
+    void OnConvButtonClicked(SimAgent a1, SimAgent a2)
     {
         //Debug.Log($"[ConvVisualizer] Clicked conversation between {a1.name} and {a2.name}");
         if (DialogueManager.Instance != null)
         {
-            DialogueManager.Instance.StartDialogueSession(a1.name);
+            DialogueManager.Instance.StartDialogueSession(a1.name, a2.name);
         }
-
-        MovementCommand cmd = new MovementCommand
-        {
-            action = "request_conversation",
-            agent = a1.name,
-            partner = a2.name,
-            target = "CurrentLocation"
-        };
-
-        UnityTcpListener.SendToAgent(a1.name, JsonUtility.ToJson(cmd));
     }
 }
+
 ```
