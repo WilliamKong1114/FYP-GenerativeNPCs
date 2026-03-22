@@ -10,16 +10,17 @@ using System.Globalization;
 public class SimAgent : MonoBehaviour
 {
     public float moveSpeed = 1.8f;
-    public float convSpacing = 0.9f;
+    public float convSpacing = 0.3f;
 
     private Pathfinding pathfinder;
     private Grid navGrid;
     private Coroutine movementRoutine;
     private Vector3 currentDestination;
+    private Animator animator;
 
     public GameObject dialoguePanel;
+    public GameObject sprite;
     public TMP_Text emojiText;
-    public Animator animator;
 
     public bool IsInConversation { get; set; } = false;
     public string ConversationPartner { get; private set; }
@@ -28,7 +29,14 @@ public class SimAgent : MonoBehaviour
     {
         pathfinder = FindObjectOfType<Pathfinding>();
         navGrid = pathfinder.GetComponent<Grid>();
+        animator = sprite.GetComponent<Animator>();
         dialoguePanel.SetActive(false);
+
+        // Mark starting position as occupied
+        if (navGrid != null)
+        {
+            navGrid.SetOccupied(transform.position, true);
+        }
     }
 
     public void MoveTo(string targetName)
@@ -84,9 +92,15 @@ public class SimAgent : MonoBehaviour
             return false;
         }
 
+        // Temporarily clear our own occupancy so pathfinding can start from our current node
+        navGrid.SetOccupied(transform.position, false);
+
         List<Vector3> path = pathfinder.FindPath(transform.position, destination);
+
         if (path == null || path.Count == 0)
         {
+            // Restore occupancy if pathfinding fails
+            navGrid.SetOccupied(transform.position, true);
             return false;
         }
 
@@ -132,43 +146,20 @@ public class SimAgent : MonoBehaviour
         a.StopMotion();
         b.StopMotion();
 
-        Vector3 mid = (a.transform.position + b.transform.position) * 0.5f;
-        mid.z = a.transform.position.z;
+        float dir = a.transform.position.x < b.transform.position.x ? -1f : 1f;
+        Vector3 midpoint = (a.transform.position + b.transform.position) / 2f;
+
+        Vector3 posA = midpoint;
+        Vector3 posB = midpoint;
+
+        posA.x += (a.convSpacing / 2f) * dir;
+        posB.x -= (b.convSpacing / 2f) * dir;
+
+        a.transform.position = posA;
+        b.transform.position = posB;
 
         Vector2 forward = (b.transform.position - a.transform.position);
         forward.Normalize();
-
-        float spacing = (a.convSpacing + b.convSpacing) * 0.5f;
-
-        List<Vector2> directions = new List<Vector2>
-        {
-            forward,
-            -forward,
-            new Vector2(-forward.y, forward.x),
-            new Vector2(forward.y, -forward.x)
-        };
-
-        foreach (Vector2 dir in directions)
-        {
-            Vector3 offset = new Vector3(dir.x, dir.y, 0f) * (spacing * 0.5f);
-            Vector3 posA = mid - offset;
-            Vector3 posB = mid + offset;
-            posA.z = a.transform.position.z;
-            posB.z = b.transform.position.z;
-
-            if (Vector2.Distance(posA, posB) < spacing * 0.95f)
-            {
-                continue;
-            }
-
-            a.transform.position = posA;
-            b.transform.position = posB;
-            a.FaceTowards(b.transform.position);
-            b.FaceTowards(a.transform.position);
-            return;
-        }
-
-        // Fallback: at least face each other even if we keep current positions.
         a.FaceTowards(b.transform.position);
         b.FaceTowards(a.transform.position);
     }
@@ -192,10 +183,19 @@ public class SimAgent : MonoBehaviour
     {
         int targetIndex = 0;
         animator.SetBool("isWalking", true);
+        Vector3 lastOccupiedPos = transform.position;
 
         while (targetIndex < path.Count)
         {
             Vector3 targetPos = new Vector3(path[targetIndex].x, path[targetIndex].y, transform.position.z);
+
+            // Update occupancy on grid as we move
+            if (Vector3.Distance(transform.position, lastOccupiedPos) > 0.2f)
+            {
+                navGrid.SetOccupied(lastOccupiedPos, false);
+                navGrid.SetOccupied(transform.position, true);
+                lastOccupiedPos = transform.position;
+            }
 
             // 1. Move the agent towards the target position
             transform.position = Vector3.MoveTowards(transform.position, targetPos, moveSpeed * Time.deltaTime);
@@ -204,17 +204,20 @@ public class SimAgent : MonoBehaviour
             Vector3 dir = targetPos - transform.position;
             if (Mathf.Abs(dir.x) > 0.001f)
             {
-                transform.localScale = new Vector3(dir.x > 0 ? 1 : -1, 1, 1);
+                sprite.transform.localScale = new Vector3(dir.x > 0 ? 1 : -1, 1, 1);
             }
 
             // 3. Check if we reached the current waypoint to move to the next one
-            if (Vector3.Distance(transform.position, targetPos) < 0.05f)
+            if (Vector3.Distance(transform.position, targetPos) < 0.2f)
             {
                 targetIndex++;
             }
 
             yield return null;
         }
+
+        navGrid.SetOccupied(lastOccupiedPos, false);
+        navGrid.SetOccupied(transform.position, true); // Stay occupied at destination
 
         animator.SetBool("isWalking", false);
         movementRoutine = null;

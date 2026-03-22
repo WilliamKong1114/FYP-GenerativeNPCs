@@ -101,7 +101,7 @@ public class Environment : MonoBehaviour
             return targetObj.transform.position;
         }
 
-        const int sampleAttempts = 10;
+        const int sampleAttempts = 12;
         for (int i = 0; i < sampleAttempts; i++)
         {
             Vector2 offset = UnityEngine.Random.insideUnitCircle * radius;
@@ -124,32 +124,35 @@ public class Environment : MonoBehaviour
         return node != null && node.walkable;
     }
 
-void OnDrawGizmos()
-{
-    if (!rangePreview) return;
-
-    GameObject[] allObjects = GameObject.FindObjectsOfType<GameObject>();
-    Gizmos.color = rangeColor;
-
-    foreach (GameObject o in allObjects)
+    void OnDrawGizmos()
     {
-        if (o == null) continue;
+        if (!rangePreview) return;
 
-        bool isIP = string.Equals(o.name, "IP", StringComparison.Ordinal) ||
-                    string.Equals(o.tag, "IP", StringComparison.Ordinal);
+        // Use a local search in Gizmos to ensure it works in the Editor without needing to play the game
+        GameObject[] allObjects = GameObject.FindObjectsOfType<GameObject>();
+        Gizmos.color = rangeColor;
 
-        if (isIP)
+        foreach (GameObject o in allObjects)
         {
-            Vector3 pos = o.transform.position;
-            pos.z = 0f; // Ensure it's on the 2D plane
-            Gizmos.DrawWireSphere(pos, radius);
+            if (o == null) continue;
+
+            // Check if the object is an Interaction Point
+            bool isIP = string.Equals(o.name, "IP", StringComparison.Ordinal) || string.Equals(o.tag, "IP", StringComparison.Ordinal);
+
+            if (isIP)
+            {
+                Vector3 pos = o.transform.position;
+                pos.z = 0f; // Ensure it's on the 2D plane
+                Gizmos.DrawWireSphere(pos, radius);
+            }
         }
     }
-}
 
-void OnDrawGizmosSelected()
-{
-    OnDrawGizmos();
+    // This allows you to see the ranges whenever you click the Environment object in the Hierarchy
+    void OnDrawGizmosSelected()
+    {
+        OnDrawGizmos();
+    }
 }
 
 ```

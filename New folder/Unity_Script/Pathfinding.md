@@ -85,6 +85,13 @@ public class Pathfinding : MonoBehaviour
                     }
 
                     int newMovementCostToNeighbor = currentNode.gCost + GetDistance(currentNode, neighbor);
+
+                    // Add penalty for occupied nodes (simple way to avoid agents but allow if necessary)
+                    if (neighbor.occupied && neighbor != targetNode)
+                    {
+                        newMovementCostToNeighbor += 100; // Large penalty
+                    }
+
                     if (newMovementCostToNeighbor < neighbor.gCost || !openSet.Contains(neighbor))
                     {
                         neighbor.gCost = newMovementCostToNeighbor;

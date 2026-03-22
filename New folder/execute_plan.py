@@ -12,7 +12,7 @@ from langgraph.store.memory import InMemoryStore
 from langchain_core.runnables import RunnableConfig
 from typing import Annotated
 from cachetools import TTLCache
-from planner import get_plan
+from planner import get_plan, generate_emojis, store_plan, modify_plan
 from unity_comm import UnityClient
 from Secure.llm_config import skill_llm, observe_llm, dialogue_llm
 from World_Environment.environment_tree import EnvironmentTree
@@ -22,22 +22,22 @@ from World_Environment.simulation_clock import SimulationClock
 from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
 from conversation_manager import ConversationManager
 from preference_manager import PreferenceManager
-from openai import APITimeoutError
+from commitment_manager import CommitmentManager
 from chroma_client import get_client
 chroma_client = get_client(path="./chroma_db")
 
 from agent_memory import AgentMemoryManager
 import manage_data
-import reflection
+import reflection_manager
 
 load_dotenv()
 agent_state_manager = AgentStateManager()
 area_state_manager = AreaSystem()
 memory_manager = AgentMemoryManager()
+commitment_manager = CommitmentManager()
 clock = SimulationClock(time_scale=300) #1 real seconds = 5 simulated minutes
 tree = EnvironmentTree()
 tree.load()
-
 
 @lru_cache(maxsize=2)
 def get_collection(name: str):
@@ -76,7 +76,7 @@ def getUserInfo(config: RunnableConfig):
         return f"No info found for {user_id}."
     except Exception as e:
         return f"Error retrieving info: {str(e)}"
-
+    
 #CACHE_DURATION = 300
 #memory_cache = TTLCache(maxsize=1024, ttl=CACHE_DURATION)
 
@@ -128,7 +128,8 @@ def agent_node(state: State, config: RunnableConfig):
     agent_name = conf.get("agent_name")
     agent_persona = conf.get("agent_persona")
     partner_id = conf.get("partner_id")
-    
+    pending_commitments = conf.get("pending_commitments")
+
     user_msgs = []
     for m in state.get("messages", []):
         role = m.get("role") if isinstance(m, dict) else getattr(m, "role", "user")
@@ -146,24 +147,34 @@ def agent_node(state: State, config: RunnableConfig):
     
     partner_context = ""
     if partner_id:
-        partner_context = f"You are currently talking to {partner_id}. Recognize them as your conversation partner and use 'we', 'you', and 'us' appropriately when referring to shared plans or activities."
+        relationship_score = preference_manager.get_preference_score(agent_name, partner_id)
+        if relationship_score is None:
+            relationship_score = 5.0
+        relationship_type = preference_manager.get_relationship_type(agent_name, partner_id)
+        if relationship_type is None:
+            relationship_type = "Stranger"
+        partner_context = (f"You are currently talking to {partner_id}. {partner_id} has a {relationship_type} relationship with you. Use suitable pronoun, manner when talking."
+        f"Your relationship score with {partner_id} is {relationship_score:.2f}. Use this to guide the tone and content of your conversation.")
     
+    commitment_context = ""
+    if pending_commitments:
+        commitment_context =(f"Here is your pending commitment invite: {pending_commitments}. Reject the invitation if your relationship score with the initiator is lower than or equal to {6.5}, or you already have a commitment at that specific time."
+        f"Otherwize saying some vage acceptance without confirming the commitment, which is not acceptance, but not rejection either. Since you needs to check the schedule after the conversation ends."
+        "for example, you can say something similar: 'I might be able to make it, let me check my schedule and get back to you.")
+
     system_prompt = f"""
         You are {agent_name}, a villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge.
         {agent_persona}
         {partner_context}
-        Use memory tools to remember and recall information about users. 
-        Minimize greetings, salutations, or sign-offs.
+        {commitment_context}
+        Use memory tools to remember and recall information about users.
         Access the memory context to make the conversation relevant to current situation: {memory_context}.
         
-        Respond in a way that fits your personality.
-        - Keep your responses around 25 words
+        Respond guideline (IMPORTANT):
+        - Keep your responses around 20 words
         - DO NOT start every message with "Morning", "Hello", or the partner's name. Use greetings that fits your personality.
-        - Use contractions, and everyday language. 
-        - Avoid sounding overly formal or poetic. 
-        - Avoid repeating previous statements and topics unless necessary.
-        - Adapt responses to the user's latest input and keep them fresh.
-        - Determine when to ask questions to keep the conversation flowing, but avoid asking too many in a row.
+        - Adapt responses to the user's latest input.
+        - When making commitments, only set the commitment date within today. Do Not make commitment for tomorrow or future days.
     """
 
     response = dialogue_llm.invoke([{"role": "system", "content": system_prompt}] + user_msgs)
@@ -201,6 +212,37 @@ def parse_plan(description: str):
             action = match.group(2)
             steps.append((time, action))
     return steps
+
+def commitment_replan(agent_id: str, data: dict, steps_text: str) -> bool:
+    new_steps_section = parse_plan(steps_text)
+    if not new_steps_section:
+        print(f"[REPLAN] Skipped {agent_id}: accepted payload had no valid steps.")
+        return False
+
+    valid_times = {t for t, _ in data["steps"]}
+    filtered_steps = [step for step in new_steps_section if step[0] in valid_times]
+    if not filtered_steps:
+        print(f"[REPLAN] Skipped {agent_id}: replan times do not match current schedule.")
+        return False
+
+    new_emoji_section = generate_emojis([step[1] for step in filtered_steps])
+    if len(new_emoji_section) < len(filtered_steps):
+        new_emoji_section += ["❓❓"] * (len(filtered_steps) - len(new_emoji_section))
+    elif len(new_emoji_section) > len(filtered_steps):
+        new_emoji_section = new_emoji_section[:len(filtered_steps)]
+
+    data["steps"], data["emojis"] = commitment_manager.replan_steps(
+        original_steps=data["steps"],
+        original_emojis=data["emojis"],
+        new_steps_section=filtered_steps,
+        new_emoji_section=new_emoji_section,
+        current_step_idx=data["current_step"],
+    )
+
+    data["current_step"] = 0
+    new_desc = "\n".join([f"{i+1}) {s[0]}: {s[1]}" for i, s in enumerate(data["steps"])])
+    modify_plan(agent_id, new_desc, data["emojis"])
+    return True
 
 def generate_new_skill(action_desc, agent_state=None, relevant_skills=None, last_code=None, error=None):
     guidelines = """
@@ -283,17 +325,15 @@ def resolve_and_execute_skill(action_desc, target_name, client, agent_id=None, a
     #print(f"--> No suitable skill found or executed for: {action_desc}")
     return 3.0
 
-shutdown = False
-
-def find_target(action: str, agent_data):
-    path_nodes = tree.find_suitable_location(action, agent_data)
+def find_target(action: str, agent_id: str):
+    path_nodes = tree.find_suitable_location(action, agent_id)
     if not path_nodes:
         return None, None, None, None
     
     target_node = path_nodes[-1]
     target_name = tree.get_location(target_node)
-    path_str = ": ".join([n.name for n in path_nodes])
-    action_desc = f"{action} @ {path_str}"
+    #path_str = ": ".join([n.name for n in path_nodes])
+    #action_desc = f"{action} @ {path_str}"
     
     if target_node.node_type == "object":
         obj_name = target_node.name
@@ -301,7 +341,7 @@ def find_target(action: str, agent_data):
     else:
         obj_name = "unknown"
         area_name = target_node.name
-    return target_name, action_desc, area_name, obj_name
+    return target_name, area_name, obj_name
 
 def record_observation(agent_id: str, area_name: str, obj_name: str, action: str, client, agent_executions: dict):
     if area_name is None:
@@ -312,6 +352,7 @@ def record_observation(agent_id: str, area_name: str, obj_name: str, action: str
         f"About to perform: {action}\n"
         f"Current location: {area_name}\n"
         f"Current object using: {obj_name}\n"
+        f"Other agents nearby: {area_state_manager.get_agents_in_area(area_name)}\n"
     )
 
     system_msg = {
@@ -343,20 +384,33 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
     agent_data["prev_target"] = prev_obj
     agent_data["prev_area"] = prev_area
 
-    target_name, action_desc, area_name, obj_name = find_target(action, agent_data)
-    area_manager = area_state_manager.get_manager(area_name)
-
+    target_name, area_name, obj_name = find_target(action, agent_id)
+    
     print(f"[{cur_time}] {agent_id}: {action} at {target_name}")
-    client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
+    
     if (area_name != prev_area):
-        area_manager.set_agent_in_area(agent_id, area_name, "enter")
         prev_area_manager = area_state_manager.get_manager(prev_area)
         with prev_area_manager.lock:
             prev_area_manager.set_obj_state(prev_obj, "empty", None)
             prev_area_manager.set_agent_in_area(agent_id, prev_area, "exit")
+    
+    area_manager = area_state_manager.get_manager(area_name)
+    client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
+    area_manager.set_agent_in_area(agent_id, area_name, "enter")
+
+    days, hours, minutes, _ = clock.get_sim_time()
+    time_str = f"{hours:02d}:{minutes:02d}"
+    client.action_recorded(
+        agent_id=agent_id,
+        action_text=action,
+        location=target_name,
+        day=days,
+        time_str=time_str,
+        ts=time.time()
+    )
 
     #record_observation(agent_id, area_name, obj_name, action, client=client, agent_executions=agent_executions)
-    reflection.check_reflect(agent_id, clock, agent_executions, client)
+    reflection_manager.check_reflect(agent_id, clock, agent_executions, client)
 
     #Observe area state
     with area_manager.lock:
@@ -393,7 +447,7 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
             {"id": partner_id, "persona": agent_executions[partner_id]["persona"]}
         ]
         conv_manager.check_conversation(area_name, group, agent_executions, client)
-        state_manager.set_agent_state(agent_id, action_desc)
+        #state_manager.set_agent_state(agent_id, action_desc)
     #return duration
   
 def main():
@@ -417,7 +471,7 @@ def main():
     client = UnityClient()
     #area_state_manager.start_listener(5006)
     conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False, preference_manager=preference_manager)
-    client.conv_manager = conv_manager  # Inject for handling incoming requests
+    #conv_manager = conv_manager  # Inject for handling incoming requests
     
     num_agents = len(agents_config)
     max_workers = min(num_agents + 1, 20)
@@ -437,16 +491,25 @@ def main():
             "current_target": config["home_node"],  # Track current target node
             "current_area": config["home_area"],    # Track current area
             "prev_target": None,
-            "prev_area": None
+            "prev_area": None,
+            "pending_commitments": []
         } for config in agents_config
     }
 
     try:
-        while not shutdown:   
-            for agent_id in [config["id"] for config in agents_config]:
-                client.check_for_incoming(agent_id, agent_executions)
-
-            if clock.is_new_day():
+        for agent_id, data in agent_executions.items():
+            description, emojis = get_plan(agent_id)
+            data["agent_name"] = agent_id
+            data["steps"] = parse_plan(description)
+            data["emojis"] = emojis
+            data["current_step"] = 0
+            commitment_manager.remove_commitment(agent_id)
+            #client._get_connection(agent_id)
+            print(f"[{agent_id}] Loaded plan for {agent_id} with {len(data['steps'])} steps.")
+        
+        simulation_active = True
+        while not shutdown:
+            if clock.is_new_day() and clock.get_sim_days() > 0:
                 simulation_active = False
 
                 for config in agents_config:
@@ -458,21 +521,18 @@ def main():
                         data["active_task"].result()  # Wait for current task to finish
 
                     while data["is_chatting"]:
-                        time.sleep(1)  # Wait for chat to finish
+                        time.sleep(5)  # Wait for chat to finish
 
                     client.move_to(home_node, "", "Return Home", agent_id, wait_for_response=True)
+
                 agent_state_manager.reset_agents()
                 area_state_manager.reset_area()
 
+                #Plan generation
+                from planner import generate_plans
+                generate_plans(agents_state)
+
                 print(f"\n--- New Day - {clock.get_time_string()} ---")
-                for agent_id, data in agent_executions.items():
-                    description, emojis = get_plan(agent_id)
-                    data["agent_name"] = agent_id
-                    data["steps"] = parse_plan(description)
-                    data["emojis"] = emojis
-                    data["current_step"] = 0
-                    print(f"[{agent_id}] Loaded plan for {agent_id} with {len(data['steps'])} steps.")
-                simulation_active = True
 
             if (simulation_active and clock.get_sim_hour() >= 6):
                 for agent_id, data in agent_executions.items():
@@ -498,9 +558,53 @@ def main():
                         data["is_busy_until"] = time.time() + 6  # Wait 6 real-world seconds
                         data["current_step"] += 1
 
+                for agent_id, data in agent_executions.items():
+                    invite_info = commitment_manager.pop_commitment(data)
+                    if not invite_info:
+                        continue
+
+                    role = invite_info.get("role", "invitee")
+                    if role == "initiator":
+                        decision = commitment_manager.build_initiator_replan(
+                            persona=data["persona"],
+                            invite_info=invite_info,
+                            future_steps=data["steps"],
+                            current_step_idx=data["current_step"],
+                        )
+                    else:
+                        decision = commitment_manager.decide_commitment(
+                            persona=data["persona"],
+                            invite_info=invite_info,
+                            future_steps=data["steps"],
+                            current_step_idx=data["current_step"],
+                        )
+
+                    print(f"[REPLAN] Decision for {agent_id} on {invite_info['event_name']}: {decision['state']}")
+                    
+                    if decision["state"] == "ACCEPT" and decision.get("steps"):
+                        if commitment_replan(agent_id, data, decision["steps"]):
+                            print(f"[REPLAN] {agent_id} partially updated emojis and cleaned up {len(data['steps'])} future steps.")
+
+                            if role != "initiator":
+                                initiator_id = invite_info.get("initiator")
+                                if initiator_id in agent_executions and initiator_id != agent_id:
+                                    initiator_info = {
+                                        "initiator": initiator_id,
+                                        "invitee": agent_id,
+                                        "event_name": invite_info.get("event_name"),
+                                        "start_time": invite_info.get("start_time"),
+                                        "end_time": invite_info.get("end_time"),
+                                        "role": "initiator",
+                                    }
+                                    if commitment_manager.initiator_commitment(agent_executions, initiator_id, initiator_info):
+                                        print(f"[REPLAN] Queued initiator auto-update for {initiator_id} on {invite_info['event_name']}.")
+
             if simulation_active:
-                agent_state_manager.set_time(clock.get_time_string())
-                time.sleep(1)
+                current_time = clock.get_time_string()
+                if agent_state_manager.state.get("time") != current_time:
+                    agent_state_manager.set_time(current_time)
+                client.update_time(current_time)
+                #time.sleep(1)
 
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] KeyboardInterrupt caught...")

@@ -34,7 +34,7 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
 
     private List<ConversationRecord> convList = new List<ConversationRecord>();
 
-    private string GetConvKey(string a,  string b)
+    private string GetConvKey(string a, string b)
     {
         var agents = new List<string> { a, b };
         agents.Sort();
@@ -128,29 +128,47 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
     {
         if (agent_ids == null || agent_ids.Count < 2) return;
 
+        bool isCurrentSession = isSessionActive && agent_ids.Contains(sessionAgent) && agent_ids.Contains(partnerAgent);
+
         convList.Add(new ConversationRecord { agent_ids = agent_ids, lines = lines });
 
-        if (isSessionActive && isWaitingForData)
+        if (isCurrentSession && isWaitingForData)
         {
-            if (agent_ids.Contains(sessionAgent) && agent_ids.Contains(partnerAgent))
+            dialogueLines = new List<string>(lines);
+            isWaitingForData = false;
+
+            convList.RemoveAll(c => c.agent_ids.Contains(sessionAgent) || c.agent_ids.Contains(partnerAgent));
+
+            if (!dialoguePanel.activeSelf)
             {
-                dialogueLines = new List<string>(lines);
-                isWaitingForData = false;
-
-                convList.RemoveAll(c => c.agent_ids.Contains(sessionAgent) || c.agent_ids.Contains(partnerAgent));
-
-                if (!dialoguePanel.activeSelf)
-                {
-                    EndDialogue();
-                    return;
-                }
-
-                if (currentIndex == -1)
-                {
-                    currentIndex = 0;
-                    DisplayLine();
-                }
+                EndDialogue();
+                return;
             }
+
+            if (currentIndex == -1)
+            {
+                currentIndex = 0;
+                DisplayLine();
+            }
+        }
+        else if (!isCurrentSession)
+        {
+            // Conversation finished for a pair the user hasn't opened — auto-dismiss the floating button
+            string agent1 = agent_ids[0];
+            string agent2 = agent_ids[1];
+
+            SimAgent sa = GameObject.Find(agent1)?.GetComponent<SimAgent>();
+            SimAgent pa = GameObject.Find(agent2)?.GetComponent<SimAgent>();
+            sa?.SetConversationState(false);
+            pa?.SetConversationState(false);
+
+            MovementCommand cmd = new MovementCommand { action = "conversation_finished" };
+            cmd.agent = agent1;
+            UnityTcpListener.SendToAgent(agent1, JsonUtility.ToJson(cmd));
+            cmd.agent = agent2;
+            UnityTcpListener.SendToAgent(agent2, JsonUtility.ToJson(cmd));
+
+            convList.RemoveAll(c => c.agent_ids.Contains(agent1) || c.agent_ids.Contains(agent2));
         }
     }
 
@@ -198,13 +216,18 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
         dialoguePanel.SetActive(false);
         portraitCache.Clear();
 
-        MovementCommand cmd = new MovementCommand
-        {
-            action = "conversation_finished",
-            agent = sessionAgent
-        };
+        SimAgent sa = GameObject.Find(sessionAgent)?.GetComponent<SimAgent>();
+        SimAgent pa = GameObject.Find(partnerAgent)?.GetComponent<SimAgent>();
+        sa?.SetConversationState(false);
+        pa?.SetConversationState(false);
 
-        UnityTcpListener.SendToAgent(cmd.agent, JsonUtility.ToJson(cmd));
+        MovementCommand cmd = new MovementCommand { action = "conversation_finished" };
+
+        cmd.agent = sessionAgent;
+        UnityTcpListener.SendToAgent(sessionAgent, JsonUtility.ToJson(cmd));
+
+        cmd.agent = partnerAgent;
+        UnityTcpListener.SendToAgent(partnerAgent, JsonUtility.ToJson(cmd));
     }
 
     void UpdatePortrait(string speakerName)

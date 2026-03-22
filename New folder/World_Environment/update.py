@@ -12,7 +12,7 @@ from World_Environment.area_state_manager import AreaSystem
 
 area_state_manager = AreaSystem()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+CONFIG_FILE = os.path.join(BASE_DIR, "area_state.json")
 AREAS_DIR = os.path.join(BASE_DIR, "areas")
 
 def load_config():

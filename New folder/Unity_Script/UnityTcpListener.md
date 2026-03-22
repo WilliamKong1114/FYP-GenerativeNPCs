@@ -20,7 +20,11 @@ public class MovementCommand
     public string color;       // Interaction parameter
     public string description; // Action description
     public string display_time;
-    public string session_id;
+    public List<string> agent_ids;
+    public string action_text;
+    public string location;
+    public int day;
+    public string time_str;
 }
 
 public class UnityTcpListener : MonoBehaviour
@@ -72,7 +76,7 @@ public class UnityTcpListener : MonoBehaviour
 
             if (cmd != null && dispatcher != null)
             {
-                Debug.Log($"TCP Received cmd: {cmd.content}");
+                //Debug.Log($"TCP Received cmd: {cmd.action}");
                 dispatcher.HandleCommand(cmd);
             }
             processedCount++;

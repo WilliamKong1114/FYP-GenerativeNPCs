@@ -10,6 +10,9 @@ import manage_data
 from agent_memory import AgentMemoryManager
 from Secure.llm_config import skill_llm
 from World_Environment.simulation_clock import SimulationClock
+from commitment_manager import CommitmentManager
+
+commitment_manager = CommitmentManager()
 
 load_dotenv()
 
@@ -57,7 +60,12 @@ class ConversationManager:
                 self.handle_conversation(area, group, agent_executions=agent_executions, client=client, session_id=session_id)
                 if client:
                     for a_id in agent_ids:
-                        client.set_chatting(a_id, "stop")
+                        partner_id = next((pid for pid in agent_ids if pid != a_id), None)
+                        client.set_chatting(a_id, "stop", partner_id=partner_id)
+                for a_id in agent_ids:
+                    if a_id in agent_executions:
+                        agent_executions[a_id]["is_chatting"] = False
+                        agent_executions[a_id]["is_busy_until"] = time.time() + 1
             except Exception as e:
                 print(f"[CONV] Error for {agent_ids}: {e}\n{traceback.format_exc()}")
                 for a_id in agent_ids:
@@ -97,11 +105,13 @@ class ConversationManager:
         agent_ids = [a["id"] for a in group]
         #group_key = self._get_group_key(agent_ids)
 
+        if client:
+            for a_id in agent_ids:
+                client.stop(agent_id=a_id)
+
         for a_id in agent_ids:
             agent_executions[a_id]["is_chatting"] = True
             agent_executions[a_id]["is_busy_until"] = time.time() + 600 # Prevent other tasks while chatting
-            if client: 
-                client.stop(agent_id=a_id)
 
         print(f"\n--- Conversation Triggered: {', '.join(agent_ids)} at {area} ---")
         context = f"{', '.join(agent_ids)} are in the {area}."
@@ -123,19 +133,26 @@ class ConversationManager:
             if client:
                 pair_key = tuple(sorted(agent_ids))
                 client.dialogue_cache[pair_key] = list(dialogue_lines)
-
-        for a_id in agent_ids:
-            if a_id in agent_executions:
-                agent_executions[a_id]["is_chatting"] = False
-                agent_executions[a_id]["is_busy_until"] = time.time() + 5
         
         if self.debug_mode and debug_convo:
+            for a_id in agent_ids:
+                if a_id in agent_executions:
+                    agent_executions[a_id]["is_chatting"] = False
+                    agent_executions[a_id]["is_busy_until"] = time.time() + 5
             return debug_convo
         
         if client and dialogue_lines:
             client.update_dialogue(agent_ids[0], dialogue_lines, agent_ids)
+            client.wait_for_conv_finish(agent_ids[0])
+        else:
+            for a_id in agent_ids:
+                if a_id in agent_executions:
+                    agent_executions[a_id]["is_chatting"] = False
+                    agent_executions[a_id]["is_busy_until"] = time.time() + 5
 
         print(f"--- Conversation Ended: {', '.join(agent_ids)} ---")
+        current_time = SimulationClock().get_time_string()
+        commitment_manager.assign_commitment(dialogue_lines, agent_executions, current_time)
 
     def start_conversation(self, areaName: str, group: list, agent_executions: dict):
         agent_ids = [p['id'] for p in group]
@@ -223,7 +240,7 @@ class ConversationManager:
                 "Checklist — answer each internally (do NOT output the answers):\n"
                 "1) Has either participant explicitly said goodbye, thanked, or signaled ending (e.g., \"bye\", \"that's all\", \"thanks, done\")?\n"
                 "2) Has the question been answered or the task completed with no clear follow-up request?\n"
-                "3) Is the conversation looping or going far: are the last 4–6 turns mostly confirmations, rephrases, or minor variations without new progress?\n"
+                "3) Is the conversation looping or going far: are the last 4-6 turns mostly confirmations, rephrases, or minor variations without new progress?\n"
                 "4) Has the same topic/question been asked again with substantially the same intent at least 2 times in the recent turns?\n"
                 "5) Are there more than 3 distinct topics being discussed in this conversation segment, suggesting drift or lack of focus?\n"
                 "6) Are both sides repeating explanations or requests because the other side is not responding meaningfully?\n"
@@ -234,21 +251,21 @@ class ConversationManager:
                 "- If the answer is NO: Output ONLY: NO\n"
                 "- If the answer is YES: Output two parts:\n"
                 "  Line 1: YES\n"
-                "  Line 2: A wrap‑up sentences. Including an answer within closing if a question has been asked.\n"
+                "  Line 2: A wrap-up sentences. Including an answer within closing if a question has been asked.\n"
                 "- The wrap-up sentence should be under first person perspective.\n"
                 
                 "\nHard constraints:\n"
                 "- Do NOT output any lists, bullet points, numbered items, explanations, or reasoning.\n"
-                "- Do NOT mention conditions (1)–(7), the decision rule, or the output rules.\n"
+                "- Do NOT mention conditions (1)-(7), the decision rule, or the output rules.\n"
                 "- Do NOT sounding overly formal or poetic.\n"
                 "- Your output must be either:\n"
                 "    - A single line: NO\n"
-                "    - Or two lines: YES and a wrap‑up sentence on the next line.\n"
+                "    - Or two lines: YES and a wrap-up sentence on the next line.\n"
 
                 "\nSpecial rule:\n"
-                "- If the other party asked you a question at any point, your wrap‑up must begin by answering that question directly.\n"
+                "- If the other party asked you a question at any point, your wrap-up must begin by answering that question directly.\n"
                 "- You may add a single additional sentence after the answer as a brief closing remark. Do not leave the question unanswered.\n"
-                "- Example: Q: Anything special you want to bring along? A: I’ll bring my fishing rod. See you at the willow bend."
+                "- Example: Q: Anything special you want to bring along? A: I will bring my fishing rod. See you at the willow bend."
             )
 
             full_resp = self.llm.invoke(prompt_content).content.strip()

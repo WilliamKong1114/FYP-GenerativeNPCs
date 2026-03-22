@@ -98,7 +98,16 @@ public class Grid : MonoBehaviour
     public bool IsWalkableWorldPoint(Vector3 worldPosition)
     {
         Node node = NodeFromWorldPoint(worldPosition);
-        return node != null && node.walkable;
+        return node != null && node.walkable && !node.occupied;
+    }
+
+    public void SetOccupied(Vector3 worldPosition, bool occupied)
+    {
+        Node node = NodeFromWorldPoint(worldPosition);
+        if (node != null)
+        {
+            node.occupied = occupied;
+        }
     }
 
     public Node FindNearestWalkableNode(Vector3 worldPosition, int maxSearchRadius = 6)
@@ -109,7 +118,7 @@ public class Grid : MonoBehaviour
             return null;
         }
 
-        if (origin.walkable)
+        if (origin.walkable && !origin.occupied)
         {
             return origin;
         }
@@ -132,7 +141,7 @@ public class Grid : MonoBehaviour
                     }
 
                     Node candidate = grid[x, y];
-                    if (candidate.walkable)
+                    if (candidate.walkable && !candidate.occupied)
                     {
                         return candidate;
                     }

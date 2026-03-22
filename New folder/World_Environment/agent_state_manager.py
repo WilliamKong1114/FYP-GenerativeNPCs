@@ -1,8 +1,11 @@
 import json
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.path.join(BASE_DIR, "agent_state.json")
+
 class AgentStateManager:
-    def __init__(self, file_path="World_Environment/agent_state.json"):
+    def __init__(self, file_path=STATE_FILE):
         self.state_file = file_path
         self.state = {
             "agents": {},

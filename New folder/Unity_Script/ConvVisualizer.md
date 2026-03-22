@@ -7,7 +7,7 @@ using UnityEngine.UI;
 
 public class ConvVisualizer : MonoBehaviour
 {
-    public float convTrigger = 3.0f;
+    public float TriggerDistance = 3.0f;
     public GameObject boxPrefab;
     public Canvas canvas;
 
@@ -72,16 +72,10 @@ public class ConvVisualizer : MonoBehaviour
             }
 
             float dist = Vector3.Distance(a1.transform.position, a2.transform.position);
-            if (dist < convTrigger)
+            if (dist < TriggerDistance && a1.IsInConversation && a2.IsInConversation)
             {
-                if (a1.dialoguePanel != null)
-                {
-                    a1.dialoguePanel.SetActive(false);
-                }
-                if (a2.dialoguePanel != null)
-                {
-                    a2.dialoguePanel.SetActive(false);
-                }
+                a1.dialoguePanel.SetActive(false);
+                a2.dialoguePanel.SetActive(false);
 
                 currentPairs.Add(pairId);
                 UpdateBox(pairId, a1, a2);

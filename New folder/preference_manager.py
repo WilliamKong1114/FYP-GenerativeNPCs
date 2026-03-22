@@ -5,7 +5,7 @@ import sqlite3
 import os
 import time
 from dotenv import load_dotenv
-from Secure.llm_config import dialogue_llm, impression_llm
+from Secure.llm_config import impression_llm
 from World_Environment.agent_state_manager import AgentStateManager
 from conversation_manager import ConversationManager
 
@@ -77,12 +77,13 @@ class PreferenceDB:
             score = 5.0
         new_score = max(1.0, min(10.0, score + delta))
 
-        if (new_score >= 6.5):
-            type = 'Friend'
-        elif (new_score > 3.0 and new_score < 6.5):
-            type = 'Acquaintance'
-        else:
-            type = 'Stranger'
+        if (type != "Family"):
+            if (new_score >= 6.5):
+                type = 'Friend'
+            elif (new_score > 3.0 and new_score < 6.5):
+                type = 'Acquaintance'
+            else:
+                type = 'Stranger'
 
         ts = int(time.time())
         self.conn.execute("""
@@ -124,6 +125,9 @@ class PreferenceManager:
 
     def init_relationship(self, agent_id: str, target_id: str, score: float, relationship_type: str):
         self.get_db(agent_id).init_relationship(target_id, score, relationship_type)
+
+    def get_relationship_type(self, agent_id: str, target_id: str) -> str:
+        return self.get_db(agent_id).get_relationship_type(target_id)
 
     def get_preference_score(self, agent_id: str, target_id: str) -> float:
         return self.get_db(agent_id).get_score(target_id)
@@ -182,8 +186,7 @@ class PreferenceManager:
             f"Your current impression score for {target_id}: {current_score}\n"
             f"Conversation log between you and {target_id}: {conv_log}\n"
 
-            f"""          
-            Task:
+            f"""Task:
             Your goal is to decide how this specific conversation changes your impression of {target_id}. 
             You MUST evaluate the conversation **through the lens of your persona**. Different personalities
             should produce different emotional reactions to the same events.
@@ -203,12 +206,10 @@ class PreferenceManager:
             - Neutral → 0.0
             - Mildly positive → +0.1 to +0.9
             - Strongly positive → +1.0 to +2.0
+            - If your persona dislikes or gets drained by the interaction style, output a negative delta.
+            - If your persona benefits from or enjoys this interaction style, output a positive delta.
 
-            3. The SAME conversation **must** produce different deltas for different personas.
-            If your persona dislikes or gets drained by the interaction style, output a negative delta.
-            If your persona benefits from or enjoys this interaction style, output a positive delta.
-
-            4. Think step-by-step internally (do NOT output reasoning):
+            3. Think step-by-step internally (do NOT output reasoning):
             - Identify persona traits that influence emotional reaction.
             - Identify conversation elements that trigger those traits.
             - Determine whether this persona would feel better, worse, or neutral.
@@ -217,9 +218,12 @@ class PreferenceManager:
             "Output format:\n"
             "- Do not include any explanation, comments, or additional fields.\n"
             "- The value must be a number (float) between -2.0 and +2.0.\n"
-            f"- Do Not afraid using minus values if the conversation contains negative interactions or if it conflicts with your persona. Be honest in reflecting how the conversation would impact your feelings towards {target_id}.\n"
             "Return ONLY this JSON object, in this format: {\"delta\": <float>}"
         )
+        
+        partner_type = self.get_db(agent_id).get_relationship_type(target_id)
+        if partner_type == "Family":
+            return 0.0
         response = self.llm.invoke(prompt).content
         try:
             match = re.search(r'\{.*?\}', response, re.DOTALL)

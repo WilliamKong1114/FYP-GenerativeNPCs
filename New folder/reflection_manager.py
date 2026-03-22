@@ -10,7 +10,7 @@ import manage_data
 from chroma_client import get_client
 from Secure.llm_config import reflect_llm
 
-REFLECTION_THRESHOLD = 50       # Importance sum (since last reflection) to trigger
+REFLECTION_THRESHOLD = 100      # Importance sum (since last reflection) to trigger
 RECENT_RECORDS_LIMIT = 100      # Most-recent SQLite records fed to question generation
 NUM_QUESTIONS = 3               # High-level questions proposed per reflection
 MEMORIES_PER_QUESTION = 5       # ChromaDB results fetched per question

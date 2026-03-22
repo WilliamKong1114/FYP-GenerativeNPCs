@@ -8,7 +8,7 @@
         "targets": ["house"]
     },
     {
-        "verbs": ["eat", "dine", "study", "write", "read"],
+        "verbs": ["eat", "dine", "study", "write letter", "write journal", "study", "read", "table"],
         "targets": ["table"]
     },
     {
@@ -16,11 +16,11 @@
         "targets": ["hearth"]
     },
     {
-        "verbs": ["plant", "weed", "harvest", "till", "farm", "dig", "garden"],
+        "verbs": ["plant", "weed", "harvest", "till", "farm", "dig", "garden", "water plants", "water crops", "water vegetables", "herb garden"],
         "targets": ["garden"]
     },
     {
-        "verbs": ["wash", "clean", "rinse", "bathe", "water", "drink", "fetch", "river"],
+        "verbs": ["wash", "clean", "rinse", "bathe", "fetch water", "draw water", "fill jug", "fill bucket", "collect water", "river"],
         "targets": ["river"]
     },
     {
@@ -28,7 +28,7 @@
         "targets": ["storage"]
     },
     {
-        "verbs": ["workshop", "build", "construct", "repair", "fix"],
+        "verbs": ["repair", "fix", "sharpen", "polish tools", "carve", "shape wood", "sand wood", "build", "craft", "assemble"],
         "targets": ["Table_Workshop"]
     }
 ]

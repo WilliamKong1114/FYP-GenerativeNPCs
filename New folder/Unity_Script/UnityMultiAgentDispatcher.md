@@ -8,7 +8,15 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
 {
     public void HandleCommand(MovementCommand cmd)
     {
-        //List<List<string>> convList = new List<List<string>>();
+        if (cmd.action.ToLower() == "time_update")
+        {
+            if (WorldClock.Instance != null)
+            {
+                WorldClock.Instance.UpdateTime(cmd.content);
+            }
+            return;
+        }
+
         GameObject agentObj = GameObject.Find(cmd.agent);
         if (agentObj == null)
         {
@@ -46,6 +54,19 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
                 bool isChatting = (cmd.content == "start");
                 string partner = isChatting ? cmd.partner : null;
                 simAgent.SetConversationState(isChatting, partner);
+                break;
+
+            case "action_recorded":
+                if (ActionLogPanel.Instance != null)
+                {
+                    ActionLogPanel.Instance.AddEntry(
+                        cmd.agent,
+                        cmd.action_text,
+                        cmd.location,
+                        cmd.day,
+                        cmd.time_str
+                    );
+                }
                 break;
 
             case "stop":

@@ -5,11 +5,11 @@ import time
 from agent_memory import AgentMemoryManager
 
 class UnityClient:    
-    def __init__(self, host: str = "127.0.0.1", port: int = 5005, timeout: float = 2.0, default_agent_id: str = None):
+    def __init__(self, host: str = "127.0.0.1", port: int = 5005, timeout: float = 2.0):
         self.host = host
         self.port = port
         self.timeout = timeout
-        self.default_agent_id = default_agent_id
+        #self.default_agent_id = default_agent_id
         self._connections = {}
         self._connection_lock = threading.Lock()
         #self._state_lock = threading.Lock()
@@ -122,6 +122,19 @@ class UnityClient:
     def stop(self, agent_id: str = None):
         self.build_and_send("stop", agent_id)
 
+    def action_recorded(self, agent_id: str, action_text: str, location: str, day: int, time_str: str, ts: float):
+        kwargs = {
+            "action_text": action_text,
+            "location": location,
+            "day": day,
+            "time_str": time_str,
+            "ts": ts
+        }
+        self.build_and_send("action_recorded", agent_id=agent_id, **kwargs)
+
+    def update_time(self, time_str: str):
+        self.build_and_send("time_update", content=time_str)
+
     def update_dialogue(self, agent_id: str, dialogue_lines: list, agent_ids: list):
         dialogues = "\n".join(dialogue_lines)
         kwargs = {"content": dialogues}
@@ -132,7 +145,6 @@ class UnityClient:
         action = command_dict.get("action")
         agent_id = command_dict.get("agent")
         partner_id = command_dict.get("partner")
-        pair_id = command_dict.get("pair_id")
                 
         if action == "conversation_finished":
             if agent_id and agent_id in agent_executions:
@@ -193,5 +205,6 @@ class UnityClient:
         while time.time() - start_time < timeout:
             message = self.receive_msg(agent_id, timeout=1.0)
             if f"ARRIVED:{agent_id}" in message:
+                #print(f"[TCP] {agent_id} arrived")
                 return True
         return False 
