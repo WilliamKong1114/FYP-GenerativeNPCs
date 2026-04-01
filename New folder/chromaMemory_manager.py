@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 import json
 import datetime
@@ -15,19 +16,20 @@ def add_user_info(user_id: str, info: str, path: str = "./chroma_db") -> str:
     col.upsert(ids=[user_id], documents=[info], metadatas=[{"type": "user_info", "user_id": user_id, "created_at": datetime.datetime.utcnow().isoformat()}])
     return f"Created user info for {user_id}"
 
-def add_memories(docs: List[str], user_id: str = "default_user", path: str = "./chroma_db", importance: int = 5, game_hour: float = 0) -> List[str]:
+def add_memories(docs: List[str], user_id: str, path: str = "./chroma_db", importance: int = 5, type: str = "memory", game_hour: int = 0) -> List[str]:
     client = get_client(path)
-    col = client.get_or_create_collection("memories")
+    col = client.get_or_create_collection(type)
+
     if not docs:
         return []
 
     ids = [str(uuid.uuid4()) for _ in docs]
     metas = [{
-        "type": "memory", 
+        "type": type, 
         "user_id": user_id,
         "importance": importance,
         "created_at": game_hour,
-        "modified_on": game_hour
+        "modified_on": game_hour,
     } for _ in docs]
     col.add(ids=ids, documents=docs, metadatas=metas)
     return ids
@@ -69,37 +71,39 @@ def delete_conversations_for_user(user_id: str, path: str = "./chroma_db") -> st
 def list_users_with_memories(path: str = "./chroma_db") -> List[Dict[str, Any]]:
     client = get_client(path)
     user_col = client.get_or_create_collection("user_info")
-    mem_col = client.get_or_create_collection("memories")
+    mem_col = client.get_or_create_collection("reflection")
 
+    # Get data from user_info
     users_data = user_col.get()
     user_ids = users_data.get("ids", [])
     user_docs = users_data.get("documents", [])
-    user_metas = users_data.get("metadatas", [])
+    
+    # Map user info for quick lookup
+    user_info_map = {uid: doc for uid, doc in zip(user_ids, user_docs)}
 
+    # Get all memories
     all_mems = mem_col.get()
     mem_docs = all_mems.get("documents", [])
     mem_metas = all_mems.get("metadatas", [])
 
     mems_by_user: Dict[str, List[str]] = {}
     for i, meta in enumerate(mem_metas or []):
-        uid = None
-        if isinstance(meta, dict):
-            uid = meta.get("user_id")
-        else:
-            d = json.loads(meta)
-            uid = d.get("user_id")
-
+        # Extract user_id from metadata (handling potential string-encoded JSON)
+        uid = meta.get("user_id") if isinstance(meta, dict) else json.loads(meta).get("user_id")
+        
         if not uid:
             continue
         mem_text = mem_docs[i] if i < len(mem_docs) else ""
         mems_by_user.setdefault(uid, []).append(mem_text)
 
+    # Combine IDs from both collections to ensure we don't miss anyone
+    all_known_uids = set(user_ids) | set(mems_by_user.keys())
+    
     results: List[Dict[str, Any]] = []
-    for idx, uid in enumerate(user_ids):
-        desc = user_docs[idx] if idx < len(user_docs) else ""
+    for uid in sorted(all_known_uids):
         results.append({
             "user_id": uid,
-            "description": desc,
+            "description": user_info_map.get(uid, "No description found in user_info"),
             "memories": mems_by_user.get(uid, []),
         })
 
@@ -146,10 +150,10 @@ def main() -> None:
             "print_result": lambda result: print(result),
         },
         "5": {
-            "description": "List users with descriptions and memories",
+            "description": "List users with descriptions and memories by type",
             "function": lambda: list_users_with_memories(),
             "print_result": lambda users: (
-                [print("-" * 40, f"User ID: {u['user_id']}", f"Description: {u.get('description', '')}", "Memories:", *[f"  - {mem}" for mem in u.get('memories', [])], "-" * 40, sep="\n") for u in users]
+                [print(f"User ID: {u['user_id']}\nMemories: {u['reflection']}") for u in users]
             ),
         },
         "6": {

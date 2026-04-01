@@ -1,14 +1,15 @@
 {
-    "date": "2026-03-23",
+    "date": "2026-04-01",
     "models": {
-        "openai/gpt-4o-mini": 24,
-        "openai/gpt-4.1-mini": 0,
-        "meta/Llama-3.2-11B-Vision-Instruct": 2,
-        "meta/Meta-Llama-3.1-8B-Instruct": 12,
-        "mistral-ai/Ministral-3B": 0,
-        "microsoft/Phi-4": 1,
-        "cohere/cohere-command-a": 27,
-        "openai/gpt-4.1-nano": 0,
-        "mistral-ai/mistral-medium-2505": 23
+        "openai/gpt-4o-mini": 0,
+        "openai/gpt-4.1-mini": 55,
+        "meta/Llama-3.2-11B-Vision-Instruct": 0,
+        "meta/Meta-Llama-3.1-8B-Instruct": 48,
+        "mistral-ai/Ministral-3B": 12,
+        "microsoft/Phi-4": 22,
+        "cohere/cohere-command-a": 10,
+        "openai/gpt-4.1-nano": 66,
+        "mistral-ai/mistral-medium-2505": 55,
+        "cohere/Cohere-command-r-08-2024": 5
     }
 }

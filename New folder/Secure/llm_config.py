@@ -49,24 +49,23 @@ def build_client_github(model_name: str, temperature: float, max_tokens: int = 4
         max_tokens=max_tokens,
         top_p=1.0, 
         timeout=10,
-        max_retries=2
+        #max_retries=2
     )
 
 #
 #mistral-ai/Codestral-2501 | code generation
 #meta/Llama-3.2-11B-Vision-Instruct | img recognition
-#mistral-ai/mistral-medium-2505 | general purpose
+#openai/gpt-4o-mini
 #cohere/Cohere-command-r-08-2024 | code generation
-#openai/gpt-4.1-nano
 #
-reflect_llm = build_client_github("meta/Llama-3.2-11B-Vision-Instruct", 0.5)
-dialogue_llm = build_client_github("openai/gpt-4o-mini", 0.8, 4096)
+reflect_llm = build_client_github("mistral-ai/Ministral-3B", 0.5)
+dialogue_llm = build_client_github("openai/gpt-4.1-nano", 0.8, 4096)
 planner_llm = build_client_github("mistral-ai/mistral-medium-2505", 0.7, 4096)
-skill_llm = build_client_github("meta/Meta-Llama-3.1-8B-Instruct", 0.3, 4096)
-observe_llm = build_client_github("mistral-ai/Ministral-3B", 0.8, 2048)
-routing_llm = build_client_github("cohere/cohere-command-a", 0.3, 2048)
-impression_llm = build_client_github("openai/gpt-4.1-mini", 0.8, 4096)
-commitment_llm = build_client_github("microsoft/Phi-4", 0.8, 4096)
+conversation_llm = build_client_github("openai/gpt-4.1-mini", 0.5, 4096)
+observe_llm = build_client_github("meta/Llama-3.2-11B-Vision-Instruct", 0.8, 2048)
+routing_llm = build_client_github("meta/Meta-Llama-3.1-8B-Instruct", 0.3, 2048)
+impression_llm = build_client_github("microsoft/Phi-4", 0.8, 4096)
+commitment_llm = build_client_github("cohere/cohere-command-a", 0.8, 4096)
 
 if __name__ == "__main__":
     if os.path.exists(COUNTER_FILE):

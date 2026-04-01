@@ -133,7 +133,7 @@ class UnityClient:
         self.build_and_send("action_recorded", agent_id=agent_id, **kwargs)
 
     def update_time(self, time_str: str):
-        self.build_and_send("time_update", content=time_str)
+        self.build_and_send("time_update", agent_id="System", content=time_str)
 
     def update_dialogue(self, agent_id: str, dialogue_lines: list, agent_ids: list):
         dialogues = "\n".join(dialogue_lines)
@@ -156,28 +156,31 @@ class UnityClient:
                 agent_executions[partner_id]["is_busy_until"] = time.time() + 1
             return
 
-    def receive_msg(self, agent_id: str, timeout: float = 2.0):
+    def receive_msg(self, agent_id: str, timeout: float = 5.0):
         sock = self._get_connection(agent_id)
-        if not sock: return []
+        if not sock: return
         
         try:
             sock.settimeout(timeout)
             data = sock.recv(1024)
             if not data: 
-                return []
+                print(f"[S] Receive no data from {agent_id}.")
+                return
 
             return [msg.decode('utf-8').strip() for msg in data.split(b"\n") if msg.strip()]
         except (socket.timeout):
-            #print(f"[S] No message received.")
-            return []
+            print(f"[S] No message received.")
+            return
         except Exception as e:
             print(f"[S] Error receiving message for {agent_id}: {e}")
-            return []
+            return
 
     def wait_for_conv_finish(self, agent_id: str, timeout: float = 300.0):
         start_time = time.time()
         while time.time() - start_time < timeout:
-            messages = self.receive_msg(agent_id, timeout=3.0)
+            messages = self.receive_msg(agent_id)
+            if not messages:
+                return False
             for msg in messages:
                 if msg.startswith("{"):
                     cmd = json.loads(msg)
@@ -186,25 +189,25 @@ class UnityClient:
                         return True
         return False
 
-    def check_for_incoming(self, agent_id, agent_executions): 
-        """keep checking conv requests from Unity, if any, and handle them immediately"""
-        message = self.receive_msg(agent_id, timeout=0.001)
-        for msg in message:
-            try:
-                if msg.startswith("{"):
-                    cmd = json.loads(msg)
-                    self.handle_incoming_command(cmd, agent_executions)
-            except json.JSONDecodeError:
-                continue
-            except Exception as e:
-                print(f"[TCP] Failed to handle incoming command for {agent_id}: {e}")
-                continue
-
-    def wait_for_arrival(self, agent_id: str, timeout: float = 20.0):        
+    def wait_for_arrival(self, agent_id: str, timeout: float = 10.0):        
         start_time = time.time()
         while time.time() - start_time < timeout:
-            message = self.receive_msg(agent_id, timeout=1.0)
+            message = self.receive_msg(agent_id)
             if f"ARRIVED:{agent_id}" in message:
                 #print(f"[TCP] {agent_id} arrived")
                 return True
         return False 
+
+    """ 
+    def check_for_incoming(self, agent_id, agent_executions): 
+    message = self.receive_msg(agent_id, timeout=0.001)
+    print(f"[TCP] Received message for {agent_id}: {message}")
+    for msg in message:
+        try:
+            if msg.startswith("{"):
+                cmd = json.loads(msg)
+                self.handle_incoming_command(cmd, agent_executions)
+        except Exception as e:
+            print(f"[TCP] Failed to handle incoming command for {agent_id}: {e}")
+            continue
+    """

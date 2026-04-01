@@ -4,11 +4,12 @@ import uuid
 import json
 import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
-import manage_data
+import chromaMemory_manager
 
 from agent_memory import AgentMemoryManager
-from Secure.llm_config import skill_llm
+from Secure.llm_config import conversation_llm
 from World_Environment.simulation_clock import SimulationClock
 from commitment_manager import CommitmentManager
 
@@ -18,32 +19,43 @@ load_dotenv()
 
 CONVERSATION_COOLDOWN = 200
 MIN_CONVERSATION_TURNS = 6
-MAX_TERNS = 16
+MAX_TERNS = 12
 EXTRA_TURNS_PER_PARTICIPANT = 2
 
 class ConversationManager:
     def __init__(self, graph=None, clock: "SimulationClock"=None, debug_mode: bool = False, preference_manager=None):
         self.memory_manager = AgentMemoryManager()
-        self.llm = skill_llm
+        self.llm = conversation_llm
         self.clock = clock
         self.graph = graph
         self.debug_mode = debug_mode
         self.preference_manager = preference_manager
         self.db_lock = threading.Lock()
-        self._cooldown_lock = threading.Lock()
+        self._state_lock = threading.Lock()
         self._pending_conversations: set[frozenset] = set()
-        self._pending_lock = threading.Lock()
 
     def check_conversation(self, area: str, group: list, agent_executions: dict, client=None, session_id: str = None) -> bool:
         agent_ids = [a["id"] for a in group]
         pair_key = frozenset(agent_ids)
 
-        with self._pending_lock:
+        with self._state_lock:
             if pair_key in self._pending_conversations:
                 return False
 
-            if not self.start_conversation(area, group, agent_executions):
-                return False
+            now = time.time()
+            for agent_id in agent_ids:
+                agent_data = agent_executions.get(agent_id)
+                if agent_data is None:
+                    return False
+
+                last_time = float(agent_data.get("last_conv_time", 0) or 0)
+                if now - last_time < CONVERSATION_COOLDOWN:
+                    if self.debug_mode:
+                        print(f"\n--- No Conversation: {', '.join(agent_ids)} at {area} ---")
+                    return False
+
+            for agent_id in agent_ids:
+                agent_executions[agent_id]["last_conv_time"] = now
 
             self._pending_conversations.add(pair_key)
 
@@ -73,7 +85,7 @@ class ConversationManager:
                         agent_executions[a_id]["is_chatting"] = False
                         agent_executions[a_id]["is_busy_until"] = time.time() + 5
             finally:
-                with self._pending_lock:
+                with self._state_lock:
                     self._pending_conversations.discard(pair_key)
 
         t = threading.Thread(target=_run, daemon=True, name=f"Conv-{'&'.join(agent_ids)}")
@@ -81,14 +93,15 @@ class ConversationManager:
         print(f"[CONV] {' & '.join(agent_ids)} started conversation at {area}.")
         return True
 
-    def generate_agent_response(self, agent_id: str, agent_persona: str, triggering_msg: str, sender_id: str = None, partner_id: str = None, thread_id: str = None):
+    def generate_agent_response(self, agent_id: str, persona: str, tone: str, triggering_msg: str, sender_id: str = None, partner_id: str = None, thread_id: str = None):
         #incharge of in-game conversation generation
         config = {
             "configurable": {
                 "thread_id": thread_id,
                 "user_id": agent_id,
                 "agent_name": agent_id,
-                "agent_persona": agent_persona,
+                "agent_persona": persona,
+                "agent_tone": tone,
                 "partner_id": partner_id
             }
         }
@@ -151,28 +164,8 @@ class ConversationManager:
                     agent_executions[a_id]["is_busy_until"] = time.time() + 5
 
         print(f"--- Conversation Ended: {', '.join(agent_ids)} ---")
-        current_time = SimulationClock().get_time_string()
+        current_time = self.clock.get_time_string()
         commitment_manager.assign_commitment(dialogue_lines, agent_executions, current_time)
-
-    def start_conversation(self, areaName: str, group: list, agent_executions: dict):
-        agent_ids = [p['id'] for p in group]
-
-        with self._cooldown_lock:
-            now = time.time()
-            for agent_id in agent_ids:
-                agent_data = agent_executions.get(agent_id)
-                if agent_data is None:
-                    return False
-
-                last_time = float(agent_data.get("last_conv_time", 0) or 0)
-                if now - last_time < CONVERSATION_COOLDOWN:
-                    if self.debug_mode:
-                        print(f"\n--- No Conversation: {', '.join(agent_ids)} at {areaName} ---")
-                    return False
-
-            for agent_id in agent_ids:
-                agent_executions[agent_id]["last_conv_time"] = now
-            return True
 
     def summarize_conversation_and_store(self, user_id: str, raw_log: str = None, log_id: str = None) -> str:
         if self.debug_mode:
@@ -190,7 +183,7 @@ class ConversationManager:
         system = {
             "role": "system",
             "content": 
-                #f"You are {user_id}.\n"
+                f"You are {user_id}.\n"
                 #f"{time_context}"
                 "You are trying to summarize the conversation with a list of 3 to 5 items, with each item must contains 10 to 15 words, with each include the name of the person.\n"
                 "The summary will be accessed by your future self to recap what is going on, what have been mentioned and what needs to be done.\n"
@@ -220,7 +213,7 @@ class ConversationManager:
             importance = item.get("importance", 5)
 
             if self.clock:
-                manage_data.add_memories([description], user_id=user_id, importance=importance, game_hour=current_game_hours)
+                chromaMemory_manager.add_memories([description], user_id=user_id, importance=importance, type="summary", game_hour=current_game_hours)
             self.memory_manager.save_summary(user_id=user_id, summary=description, importance=importance, log_id=log_id)
 
             #print(f"[{user_id}]: {description} (Imp: {importance})")
@@ -228,7 +221,7 @@ class ConversationManager:
             
         return last_summary
 
-    def check_conversation_status(self, sender_id,dialogue_history):
+    def check_conversation_status(self, sender_id, sender_persona, dialogue_history):
         if len(dialogue_history) < MIN_CONVERSATION_TURNS:
             return False
 
@@ -236,6 +229,7 @@ class ConversationManager:
             conv_history = "\n".join([f"{d['speaker']}: {d['text']}" for d in dialogue_history])
             prompt_content =(
                 f"You are {sender_id}. Review the recent conversation history and decide whether the conversation should end now, and if so, produce a closing message that suit your personality.\n"
+                f"Your persona: {sender_persona}\n"
                 f"Conversation history:{conv_history}\n"
                 "Checklist — answer each internally (do NOT output the answers):\n"
                 "1) Has either participant explicitly said goodbye, thanked, or signaled ending (e.g., \"bye\", \"that's all\", \"thanks, done\")?\n"
@@ -299,7 +293,8 @@ class ConversationManager:
                 
                 response_text = self.generate_agent_response(
                     agent_id=current_speaker['id'],
-                    agent_persona=current_speaker['persona'],
+                    persona=current_speaker['persona'],
+                    tone=current_speaker['tone'],
                     triggering_msg=last_text,
                     sender_id=sender_id,
                     partner_id=partner_id,
@@ -316,8 +311,9 @@ class ConversationManager:
                 
                 last_text = response_text
                 sender_id = current_speaker['id']
+                sender_persona = current_speaker['persona']
                 
-                status = self.check_conversation_status(sender_id, dialogue_history)
+                status = self.check_conversation_status(sender_id, sender_persona, dialogue_history)
                 if status:
                     if isinstance(status, str):
                         wrap_up_turn = {"speaker": current_speaker['id'], "text": status}
@@ -346,22 +342,40 @@ class ConversationManager:
         log_string = "; ".join(log_parts)
 
         if self.preference_manager and agent_personas:
-            for i in range(len(participants)):
-                for j in range(len(participants)):
-                    if i == j: continue
-                    agent_a = participants[i]
-                    agent_b = participants[j]
-                    
-                    score_a = self.preference_manager.get_preference_score(agent_a, agent_b)
-                    if score_a is None:
-                        self.preference_manager.init_impression(agent_a, agent_personas[agent_a], agent_b, log_string)
-                    else:
-                        self.preference_manager.update_impression(agent_a, agent_personas[agent_a], agent_b, score_a, log_string)
+            with ThreadPoolExecutor(max_workers=len(participants)) as executor:
+                pref_tasks = []
+                for i in range(len(participants)):
+                    for j in range(len(participants)):
+                        if i == j: continue
+                        agent_a = participants[i]
+                        agent_b = participants[j]
+                        
+                        def _update_pref(a, b, personas, log):
+                            score = self.preference_manager.get_preference_score(a, b)
+                            if score is None:
+                                self.preference_manager.init_impression(a, personas[a], b, log)
+                            else:
+                                self.preference_manager.update_impression(a, personas[a], b, score, log)
+                        
+                        pref_tasks.append(executor.submit(_update_pref, agent_a, agent_b, agent_personas, log_string))
+                
+                for future in as_completed(pref_tasks):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        print(f"[CONV] Preference update error: {e}")
 
         with self.db_lock:
             log_id = self.memory_manager.add_conversation_log(participants, log_string, place)
-            for p in participants:
-                self.summarize_conversation_and_store(p, raw_log=log_string, log_id=log_id)
+            
+            with ThreadPoolExecutor(max_workers=len(participants)) as executor:
+                futures = {executor.submit(self.summarize_conversation_and_store, p, raw_log=log_string, log_id=log_id): p for p in participants}
+                for future in as_completed(futures):
+                    p = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        print(f"[CONV] Failed to summarize for {p}: {e}")
 
             print(f"Saved conversation logs and summaries for {participants}")
                 

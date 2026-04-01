@@ -151,22 +151,22 @@ class PreferenceManager:
         return scores[0][0]
 
     def init_impression(self, agent_id: str, persona: list, target_id: str, conv_log: str) -> float:
-        prompt = (
-            f"You are {agent_id}. You have just had your first conversation with {target_id}.\n"
-            f"Your persona (this defines your preferences, values, and typical behavior): {persona}\n"
-            f"Conversation log between you and {target_id}: {conv_log}\n"
-            "Task:\n"
-            f"- Based ONLY on this persona and this conversation, rate how interested you are in talking to {target_id} again in the future.\n"
-            f"- The score must reflect {agent_id}'s perspective and personality, not a generic or neutral view.\n"
-            "- Use a scale from 3.0 to 7.0, with one decimal place (e.g., 3.2, 6.5, 4.8). 3.0 = Not much interest in talking again; 7.0 = Desired to talk again next time.\n"
-            "- If the conversation log is empty or contains almost no interaction, base your score mostly on your persona and give a moderate score (e.g., around the middle of the scale), not an extreme one.\n"
-            "Output format:\n"
-            "- Return ONLY a valid JSON object.\n"
-            "- Do not include any explanation, comments, or additional fields.\n"
-            "- The JSON must have exactly one key: \"score\".\n"
-            "- The value must be a number (float) between 3.0 and 7.0.\n\n"
-            "Return ONLY this JSON object, in this format: {\"score\": 0.0}"
-        )
+        prompt = f"""
+            You are {agent_id}. You have just had your first conversation with {target_id}.
+            Your persona (this defines your preferences, values, and typical behavior): {persona}
+            Conversation log between you and {target_id}: {conv_log}
+            Task:
+            - Based ONLY on this persona and this conversation, rate how interested you are in talking to {target_id} again in the future.
+            - The score must reflect {agent_id}'s perspective and personality, not a generic or neutral view.
+            - Use a scale from 3.0 to 7.0, with one decimal place (e.g., 3.2, 6.5, 4.8). 3.0 = Not much interest in talking again; 7.0 = Desired to talk again next time.
+            - If the conversation log is empty or contains almost no interaction, base your score mostly on your persona and give a moderate score (e.g., around the middle of the scale), not an extreme one.
+            Output format:
+            - Return ONLY a valid JSON object.
+            - Do not include any explanation, comments, or additional fields.
+            - The JSON must have exactly one key: \"score\".
+            - The value must be a number (float) between 3.0 and 7.0.
+            Return ONLY this JSON object, in this format: (score: float)
+            """
 
         response = self.llm.invoke(prompt).content
         try:
@@ -180,13 +180,13 @@ class PreferenceManager:
         return score
 
     def update_impression(self, agent_id: str, persona: list, target_id: str, current_score: float, conv_log: str) -> float:
-        prompt = (
-            f"You are {agent_id}, you just had a follow-up conversation with {target_id}.\n"
-            f"Your persona (this defines your preferences, values, and typical behavior): {persona}\n"
-            f"Your current impression score for {target_id}: {current_score}\n"
-            f"Conversation log between you and {target_id}: {conv_log}\n"
+        prompt = f"""
+            You are {agent_id}, you just had a follow-up conversation with {target_id}.
+            Your persona (this defines your preferences, values, and typical behavior): {persona}
+            Your current impression score for {target_id}: {current_score}
+            Conversation log between you and {target_id}: {conv_log}
 
-            f"""Task:
+            Task:
             Your goal is to decide how this specific conversation changes your impression of {target_id}. 
             You MUST evaluate the conversation **through the lens of your persona**. Different personalities
             should produce different emotional reactions to the same events.
@@ -213,13 +213,13 @@ class PreferenceManager:
             - Identify persona traits that influence emotional reaction.
             - Identify conversation elements that trigger those traits.
             - Determine whether this persona would feel better, worse, or neutral.
-            - Convert that emotional impact into a numeric delta.\n"""
+            - Convert that emotional impact into a numeric delta.
 
-            "Output format:\n"
-            "- Do not include any explanation, comments, or additional fields.\n"
-            "- The value must be a number (float) between -2.0 and +2.0.\n"
-            "Return ONLY this JSON object, in this format: {\"delta\": <float>}"
-        )
+            Output format:
+            - Do not include any explanation, comments, or additional fields.
+            - The value must be a number (float) between -2.0 and +2.0.
+            Return ONLY this JSON object, in this format: (delta: float)
+            """
         
         partner_type = self.get_db(agent_id).get_relationship_type(target_id)
         if partner_type == "Family":
@@ -227,7 +227,7 @@ class PreferenceManager:
         response = self.llm.invoke(prompt).content
         try:
             match = re.search(r'\{.*?\}', response, re.DOTALL)
-            delta = float(json.loads(match.group(0)).get("delta", 0.0))
+            delta = float(json.loads(match.group(0)).get('delta', 0.0))
         except Exception:
             delta = 0.0
 

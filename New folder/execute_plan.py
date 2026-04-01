@@ -12,14 +12,15 @@ from langgraph.store.memory import InMemoryStore
 from langchain_core.runnables import RunnableConfig
 from typing import Annotated
 from cachetools import TTLCache
-from planner import get_plan, generate_emojis, store_plan, modify_plan
+from planner import get_plan, store_plan, modify_plan, parse_plan
 from unity_comm import UnityClient
-from Secure.llm_config import skill_llm, observe_llm, dialogue_llm
+from Secure.llm_config import observe_llm, dialogue_llm
 from World_Environment.environment_tree import EnvironmentTree
 from World_Environment.agent_state_manager import AgentStateManager
 from World_Environment.area_state_manager import AreaSystem
 from World_Environment.simulation_clock import SimulationClock
 from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
+from planner import generate_plans
 from conversation_manager import ConversationManager
 from preference_manager import PreferenceManager
 from commitment_manager import CommitmentManager
@@ -27,7 +28,7 @@ from chroma_client import get_client
 chroma_client = get_client(path="./chroma_db")
 
 from agent_memory import AgentMemoryManager
-import manage_data
+import chromaMemory_manager
 import reflection_manager
 
 load_dotenv()
@@ -35,9 +36,10 @@ agent_state_manager = AgentStateManager()
 area_state_manager = AreaSystem()
 memory_manager = AgentMemoryManager()
 commitment_manager = CommitmentManager()
-clock = SimulationClock(time_scale=300) #1 real seconds = 5 simulated minutes
+clock = SimulationClock(time_scale=150) #1 real seconds = 150 simulated seconds
 tree = EnvironmentTree()
 tree.load()
+candidate_info = tree.build_area_list(tree.root)
 
 @lru_cache(maxsize=2)
 def get_collection(name: str):
@@ -49,11 +51,9 @@ class State(TypedDict):
 """ @tool
 def human_assistance(query: str) -> str:
     return interrupt({"query": query})
- """
 
 @tool
 def saveUserInfo(info: str, config: RunnableConfig):
-    """Save user information to the database."""
     user_id = config["configurable"].get("user_id", "default_user")
     try:
         get_collection("user_info").upsert(
@@ -67,7 +67,6 @@ def saveUserInfo(info: str, config: RunnableConfig):
 
 @tool
 def getUserInfo(config: RunnableConfig):
-    """Retrieve user information from the database."""
     user_id = config["configurable"].get("user_id", "default_user")
     try:
         results = get_collection("user_info").get(ids=[user_id])
@@ -76,59 +75,19 @@ def getUserInfo(config: RunnableConfig):
         return f"No info found for {user_id}."
     except Exception as e:
         return f"Error retrieving info: {str(e)}"
-    
+ """
+
 #CACHE_DURATION = 300
 #memory_cache = TTLCache(maxsize=1024, ttl=CACHE_DURATION)
-
-def get_memory(query: str, user_id: str, partner_id: str = None):
-    try:
-        results = get_collection("memories").query(
-            query_texts=[query],
-            n_results=10,
-            where={"user_id": user_id}
-        )
-
-        if not results["documents"] and len(results["documents"][0]) == 0:
-            return ""
-
-        documents = results["documents"][0]
-        metadatas = results["metadatas"][0]
-        distances = results["distances"][0]
-        current_hours = clock.get_sim_hour()
-        retrieved_memories = []
-
-        for doc, meta, dist in zip(documents, metadatas, distances):
-            relevance = 1.0 / (1.0 + dist)
-            importance = meta.get("importance", 3) / 10.0
-
-            last_accessed = meta.get("modified_on", 0)
-            delta_t = max(0, current_hours - last_accessed)
-            recency = pow(0.99, delta_t)
-
-            final_score = (0.5 * recency) + (0.3 * importance) + (0.2 * relevance)
-
-            if partner_id and partner_id.lower() in doc.lower():
-                final_score *= 1.5
-            
-            retrieved_memories.append((doc, final_score))
-
-        retrieved_memories.sort(key=lambda x: x[1], reverse=True)
-        top_memories = [m[0] for m in retrieved_memories[:3]]
-        
-        return f"\nRelevant memories: {top_memories}"
-        #Return example: "\nRelevant memories: [memory1, memory2, memory3]"
-
-    except Exception as e:
-        print(f"Error retrieving memory context: {e}")
-        return ""
 
 def agent_node(state: State, config: RunnableConfig):
     conf = config.get("configurable")
     user_id = conf.get("user_id")
     agent_name = conf.get("agent_name")
     agent_persona = conf.get("agent_persona")
+    agent_tone = conf.get("agent_tone")
+
     partner_id = conf.get("partner_id")
-    pending_commitments = conf.get("pending_commitments")
 
     user_msgs = []
     for m in state.get("messages", []):
@@ -140,33 +99,26 @@ def agent_node(state: State, config: RunnableConfig):
             role = str(role).lower()
             user_msgs.append({"role": role, "content": text})
 
+    memory_context = ""
     if (user_msgs):    
-        memory_context = get_memory(user_msgs[-1]["content"], user_id, partner_id)
-    else:
-        memory_context = ""
-    
+        memory_context = memory_manager.get_memory([msg["content"] for msg in user_msgs], user_id, clock.get_sim_hour(), partner_id)
+        
     partner_context = ""
     if partner_id:
         relationship_score = preference_manager.get_preference_score(agent_name, partner_id)
         if relationship_score is None:
-            relationship_score = 5.0
+            relationship_score = 3.0
         relationship_type = preference_manager.get_relationship_type(agent_name, partner_id)
         if relationship_type is None:
             relationship_type = "Stranger"
         partner_context = (f"You are currently talking to {partner_id}. {partner_id} has a {relationship_type} relationship with you. Use suitable pronoun, manner when talking."
         f"Your relationship score with {partner_id} is {relationship_score:.2f}. Use this to guide the tone and content of your conversation.")
     
-    commitment_context = ""
-    if pending_commitments:
-        commitment_context =(f"Here is your pending commitment invite: {pending_commitments}. Reject the invitation if your relationship score with the initiator is lower than or equal to {6.5}, or you already have a commitment at that specific time."
-        f"Otherwize saying some vage acceptance without confirming the commitment, which is not acceptance, but not rejection either. Since you needs to check the schedule after the conversation ends."
-        "for example, you can say something similar: 'I might be able to make it, let me check my schedule and get back to you.")
-
     system_prompt = f"""
-        You are {agent_name}, a villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge.
-        {agent_persona}
+        The year is 1200A.D. You are {agent_name}, a villager living in a small medieval settlement near a river and pasturelands, with forests not far from the village edge.
+        Here is your persona for better buildup for the conversation: {agent_persona}
         {partner_context}
-        {commitment_context}
+        Here is your tone guideline for conversation. Choose the one that fits the relationship_type ({relationship_type}): {agent_tone}.
         Use memory tools to remember and recall information about users.
         Access the memory context to make the conversation relevant to current situation: {memory_context}.
         
@@ -174,15 +126,15 @@ def agent_node(state: State, config: RunnableConfig):
         - Keep your responses around 20 words
         - DO NOT start every message with "Morning", "Hello", or the partner's name. Use greetings that fits your personality.
         - Adapt responses to the user's latest input.
-        - When making commitments, only set the commitment date within today. Do Not make commitment for tomorrow or future days.
+        - When someone is proposing a commitment, consider saysing something vague that doesn't commit you to anything specific.
     """
 
     response = dialogue_llm.invoke([{"role": "system", "content": system_prompt}] + user_msgs)
     return {"messages": [response]}
 
 tools = [
-    saveUserInfo, 
-    getUserInfo,
+    #saveUserInfo, 
+    #getUserInfo,
     #human_assistance
 ]
 
@@ -191,144 +143,14 @@ def get_graph():
     builder.add_node("agent", agent_node)                       
     builder.add_node("tools", ToolNode(tools=tools))            
     builder.add_conditional_edges("agent", tools_condition)     #deciding whether to save/retrieve memories
-    builder.add_edge("tools", "agent")           #accessing tools, retrieve memories back to agent
-    builder.set_entry_point("agent")             #agent as the entry point
-    builder.add_edge("agent", END)               #returning response
+    builder.add_edge("tools", "agent")                          #accessing tools, retrieve memories back to agent
+    builder.set_entry_point("agent")                            #agent as the entry point
+    builder.add_edge("agent", END)                              #returning response
     graph = builder.compile(checkpointer=InMemorySaver(), store=InMemoryStore())
     return graph
 
-def parse_plan(description: str):
-    lines = description.split('\n')
-    steps = []
-    # Example: "15) 13:00: Head to the workshop to gather materials for crafting furniture."
-    # \d+\) - 1); \s - whitespace; \d+:\d+\s+[ap]m - 6:00 am
-    pattern = re.compile(r'\d+\)\s+(\d+:\d+):\s+(.*)')
-    
-    for line in lines:
-        line = line.strip()
-        match = pattern.match(line)
-        if match:
-            time = match.group(1)
-            action = match.group(2)
-            steps.append((time, action))
-    return steps
-
-def commitment_replan(agent_id: str, data: dict, steps_text: str) -> bool:
-    new_steps_section = parse_plan(steps_text)
-    if not new_steps_section:
-        print(f"[REPLAN] Skipped {agent_id}: accepted payload had no valid steps.")
-        return False
-
-    valid_times = {t for t, _ in data["steps"]}
-    filtered_steps = [step for step in new_steps_section if step[0] in valid_times]
-    if not filtered_steps:
-        print(f"[REPLAN] Skipped {agent_id}: replan times do not match current schedule.")
-        return False
-
-    new_emoji_section = generate_emojis([step[1] for step in filtered_steps])
-    if len(new_emoji_section) < len(filtered_steps):
-        new_emoji_section += ["❓❓"] * (len(filtered_steps) - len(new_emoji_section))
-    elif len(new_emoji_section) > len(filtered_steps):
-        new_emoji_section = new_emoji_section[:len(filtered_steps)]
-
-    data["steps"], data["emojis"] = commitment_manager.replan_steps(
-        original_steps=data["steps"],
-        original_emojis=data["emojis"],
-        new_steps_section=filtered_steps,
-        new_emoji_section=new_emoji_section,
-        current_step_idx=data["current_step"],
-    )
-
-    data["current_step"] = 0
-    new_desc = "\n".join([f"{i+1}) {s[0]}: {s[1]}" for i, s in enumerate(data["steps"])])
-    modify_plan(agent_id, new_desc, data["emojis"])
-    return True
-
-def generate_new_skill(action_desc, agent_state=None, relevant_skills=None, last_code=None, error=None):
-    guidelines = """
-    Guidelines:
-    1. Your function will be reused for building more complex functions. Therefore, you should make it generic and reusable.
-    2. Write VALID Python code. Do NOT wrap in markdown blocks. Do NOT provide explanations.
-    3. The code should extract target from params: `target = params.get('target_name')`
-    4. The code MUST end by setting variable `result` to an estimated duration (float in seconds) for the action. E.g., `result = 4.0`.
-    """
-    
-    primitives = """
-    Control Primitives:
-    - Variable `unity` is a UnityClient instance.
-    - Variable `params` is a dictionary containing 'target_name' and 'agent_id'.
-    - Use `unity.move_to(target_name, description, agent_id=params.get('agent_id'))` to move.
-    - Use `unity.interact(target_name, method_name, agent_id=params.get('agent_id'))` to act. Method names are usually verbs like 'Till', 'Water', 'Harvest'.
-    """
-    
-    skills_context = ""
-    if relevant_skills:
-        skills_context = "Relevant Skills from Library:\n"
-        for s in relevant_skills:
-            desc = s.get('doc') or s.get('description') or "No description"
-            code = s.get('metadata', {}).get('code') or "# No code"
-            skills_context += f"--- Skill: {desc} ---\n{code}\n"
-            
-    feedback_section = ""
-    if last_code:
-        feedback_section = f"""
-        Previous Code Attempt:{last_code}
-        Execution Error / Feedback:{error}
-        Critique:
-        The previous code failed. Analyze the error and generate a fixed version.
-        """
-        
-    state_section = f"Current Agent State: {agent_state}" if agent_state else ""
-    prompt = f"""
-    You are an AI generating Python code for a game agent skill. Task: {action_desc}
-    {guidelines}
-    {primitives}
-    {skills_context}
-    {state_section}
-    {feedback_section}
-    Generate the Python code now.
-    """
-    response = skill_llm.invoke(prompt)
-    code = response.content.replace("```python", "").replace("```", "").strip()
-    return code
-
-def resolve_and_execute_skill(action_desc, target_name, client, agent_id=None, agent_data=None):
-
-    res = query_skill(action_desc, n_results=5)
-    candidates = []
-    if res and res.get('ids') and len(res['ids']) > 0:
-        ids_list = res['ids'][0]
-        dists_list = res.get('distances', [[]])[0] if res.get('distances') else []
-
-        for i, sid in enumerate(ids_list):
-            dist = dists_list[i] if i < len(dists_list) else 0.0            
-            if dist > 1.0:
-                continue
-
-            doc = res['documents'][0][i] if res['documents'] else None
-            meta = res['metadatas'][0][i] if res['metadatas'] else None
-            candidates.append({"id": sid, "description": doc, "metadata": meta, "distance": dist})
-
-    params = {"target_name": target_name, "action_desc": action_desc}
-    if agent_id:
-        params["agent_id"] = agent_id
-
-    for skill in candidates:
-        name = skill['metadata'].get('name', 'Unknown')
-        print(f"--> Candidate: {name} (Dist: {skill.get('distance', 'N/A')})")
-        try:
-            return float(execute_skill(skill, params=params, unity_client=client))
-        except Exception as e:
-            print(f"--> Skill '{name}' execution failed: {e}")
-            continue
-
-    #print(f"--> No suitable skill found or executed for: {action_desc}")
-    return 3.0
-
 def find_target(action: str, agent_id: str):
     path_nodes = tree.find_suitable_location(action, agent_id)
-    if not path_nodes:
-        return None, None, None, None
     
     target_node = path_nodes[-1]
     target_name = tree.get_location(target_node)
@@ -343,29 +165,31 @@ def find_target(action: str, agent_id: str):
         area_name = target_node.name
     return target_name, area_name, obj_name
 
-def record_observation(agent_id: str, area_name: str, obj_name: str, action: str, client, agent_executions: dict):
+def record_observation(agent_id: str, area_name: str, obj_name: str, action: str):
     if area_name is None:
         return
-
+    
+    agents_nearby = area_state_manager.get_manager(area_name).get_agents_in_area()
+    
     user_content = (
         f"Agent: {agent_id}\n"
         f"About to perform: {action}\n"
         f"Current location: {area_name}\n"
         f"Current object using: {obj_name}\n"
-        f"Other agents nearby: {area_state_manager.get_agents_in_area(area_name)}\n"
+        f"Other agents nearby: {agents_nearby}\n"
     )
 
     system_msg = {
         "role": "system",
         "content": (
             "You are writing an observation record for a simulated village agent."
-            "Write 1 concise sentences (under 15 words) describing what the agent perceives upon arriving at the location, what he/she is trying to do, or what is he/she about to do, in third-person."
-            "Be natural, precise and specific — describe the state of objects related to the agent's action."
+            "Write 1 concise sentences (under 15 words) describing what the agent perceives at the location, what is he/she about to do, what he thinks other agents is doing in third-person."
+            "Be neutral, precise and specific — describe the state of objects related to the agent's action."
             "Avoid sounding overly formal or poetic."
             "Examples:\n"
             "\"Samson occupied the table in workshop to craft items using bare materials.\"\n"
             "\"The well is being used by Samson to draw some water.\""
-            "\"Samson is discussing the weather with Lily.\"\n"
+            "\"Samson saw Wilton is using the table.\"\n"
         )
     }
     user_msg = {"role": "user", "content": user_content}
@@ -373,33 +197,37 @@ def record_observation(agent_id: str, area_name: str, obj_name: str, action: str
     response = observe_llm.invoke([system_msg, user_msg])
     obs_text = response.content.strip()
     
-    manage_data.add_memories([obs_text], user_id=agent_id, importance=3, game_hour=clock.get_sim_hour())
+    chromaMemory_manager.add_memories([obs_text], user_id=agent_id, importance=3, type="observation", game_hour=clock.get_sim_hour())
     memory_manager.add_observation(agent_id, obs_text, area_name)
 
-    #reflection.check_reflect(agent_id, clock, agent_executions, client)
+    #reflection_manager.check_reflect(agent_id, clock, agent_executions, client)
 
-def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_data, cur_time, conv_manager, agent_executions):
+def execute_agent_action(agent_id, action, emojis, client, agent_data, cur_time, conv_manager, agent_executions):
     prev_obj = agent_data.get("current_target")
     prev_area = agent_data.get("current_area")
     agent_data["prev_target"] = prev_obj
     agent_data["prev_area"] = prev_area
+    #print("1. Storing previous location.")
 
     target_name, area_name, obj_name = find_target(action, agent_id)
-    
-    print(f"[{cur_time}] {agent_id}: {action} at {target_name}")
-    
+    #print("2. Finding target.")
+
     if (area_name != prev_area):
         prev_area_manager = area_state_manager.get_manager(prev_area)
         with prev_area_manager.lock:
             prev_area_manager.set_obj_state(prev_obj, "empty", None)
-            prev_area_manager.set_agent_in_area(agent_id, prev_area, "exit")
+            prev_area_manager.set_agent_in_area(agent_id, "exit")
+        #print("Not staying in the same area, exiting.")
     
     area_manager = area_state_manager.get_manager(area_name)
     client.move_to(target_name, emojis, action, agent_id, wait_for_response=True)
-    area_manager.set_agent_in_area(agent_id, area_name, "enter")
+    #print("3. Moving to target.")
+    area_manager.set_agent_in_area(agent_id, "enter")
+    #print("4. Setting agent in area.")
 
     days, hours, minutes, _ = clock.get_sim_time()
     time_str = f"{hours:02d}:{minutes:02d}"
+    #print(f"[Day {days}, {time_str}] {agent_id}: {action} at {target_name}")
     client.action_recorded(
         agent_id=agent_id,
         action_text=action,
@@ -409,8 +237,10 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
         ts=time.time()
     )
 
-    #record_observation(agent_id, area_name, obj_name, action, client=client, agent_executions=agent_executions)
+    #record_observation(agent_id, area_name, obj_name, action)
+    #print("5. Record observation.")
     reflection_manager.check_reflect(agent_id, clock, agent_executions, client)
+    #print("6. Check reflection.")
 
     #Observe area state
     with area_manager.lock:
@@ -420,7 +250,7 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
              obj_info = {"state": "empty"}
 
         if obj_info.get("state") == "occupied" and obj_info.get("occupied_by") != agent_id:
-            print(f"[{cur_time}] {agent_id}: {obj_name} is occupied by {obj_info.get('occupied_by')}")
+            #print(f"[{cur_time}] {agent_id}: {obj_name} is occupied by {obj_info.get('occupied_by')}")
             agent_data["current_target"] = obj_name
             agent_data["current_area"] = area_name
         else:
@@ -429,13 +259,17 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
         #time.sleep(2)
         #duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id, agent_data)
         agents_nearby = area_manager.get_agents_in_area()
-        potential_partners = [a for a in agents_nearby if a != agent_id]
 
     agent_data["current_target"] = obj_name
     agent_data["current_area"] = area_name
+    #print("7. Storing current location.")
+
+    potential_partners = [a for a in agents_nearby if a != agent_id]
+    #print(f"8. Found potential partners: {potential_partners}")
 
     if potential_partners and not agent_executions[agent_id]["is_chatting"]:
         partner_id = preference_manager.select_partner(agent_id, potential_partners)
+        #print(f"9. Selected partner: {partner_id}")
         if not partner_id:
             return
 
@@ -443,14 +277,15 @@ def execute_agent_action(agent_id, action, emojis, client, state_manager, agent_
             return
 
         group = [
-            {"id": agent_id, "persona": agent_executions[agent_id]["persona"]},
-            {"id": partner_id, "persona": agent_executions[partner_id]["persona"]}
+            {"id": agent_id, "persona": agent_executions[agent_id]["persona"], "tone": agent_executions[agent_id]["tone"]},
+            {"id": partner_id, "persona": agent_executions[partner_id]["persona"], "tone": agent_executions[partner_id]["tone"]}
         ]
+        #print(f"10. Starting conversation between {agent_id} and {partner_id}")
         conv_manager.check_conversation(area_name, group, agent_executions, client)
-        #state_manager.set_agent_state(agent_id, action_desc)
-    #return duration
   
 def main():
+    ACTION_DURATION = 5.0
+
     global preference_manager
     preference_manager = PreferenceManager()
 
@@ -459,6 +294,7 @@ def main():
         {
             "id": name,
             "persona": data["persona"],
+            "tone": data["tone"],
             "home_node": data["home_node"],
             "home_area": data["home_area"]
         }
@@ -470,7 +306,12 @@ def main():
     
     client = UnityClient()
     #area_state_manager.start_listener(5006)
-    conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=False, preference_manager=preference_manager)
+    conv_manager = ConversationManager(
+        graph=get_graph(),
+        clock=clock,
+        debug_mode=False,
+        preference_manager=preference_manager,
+    )
     #conv_manager = conv_manager  # Inject for handling incoming requests
     
     num_agents = len(agents_config)
@@ -480,6 +321,7 @@ def main():
     agent_executions = {
         config["id"]: {
             "persona": config["persona"],
+            "tone": config["tone"],
             "steps": [],
             "emojis": [],
             "current_step": 0,
@@ -487,12 +329,11 @@ def main():
             "last_conv_time": 0,
             "is_chatting": False,
             "is_reflecting": False,
-            "active_task": None,    # Track running future
+            "active_task": None,                    # Track running future
             "current_target": config["home_node"],  # Track current target node
             "current_area": config["home_area"],    # Track current area
             "prev_target": None,
             "prev_area": None,
-            "pending_commitments": []
         } for config in agents_config
     }
 
@@ -504,11 +345,16 @@ def main():
             data["emojis"] = emojis
             data["current_step"] = 0
             commitment_manager.remove_commitment(agent_id)
-            #client._get_connection(agent_id)
             print(f"[{agent_id}] Loaded plan for {agent_id} with {len(data['steps'])} steps.")
         
         simulation_active = True
         while not shutdown:
+            
+            """             
+            for aid, data in agent_executions.items():
+            if data.get("is_chatting"):
+                client.check_for_incoming(aid, agent_executions)
+            """
             if clock.is_new_day() and clock.get_sim_days() > 0:
                 simulation_active = False
 
@@ -528,14 +374,38 @@ def main():
                 agent_state_manager.reset_agents()
                 area_state_manager.reset_area()
 
-                #Plan generation
-                from planner import generate_plans
-                generate_plans(agents_state)
+                generate_plans(agents_state, candidate_info)
 
+                # Reload freshly generated plans and clear transient runtime flags.
+                for config in agents_config:
+                    agent_id = config["id"]
+                    data = agent_executions[agent_id]
+                    description, emojis = get_plan(agent_id)
+                    data["steps"] = parse_plan(description)
+                    data["emojis"] = emojis
+                    data["current_step"] = 0
+                    data["is_busy_until"] = 0
+                    data["is_chatting"] = False
+                    data["is_reflecting"] = False
+                    data["active_task"] = None
+                    data["current_target"] = config["home_node"]
+                    data["current_area"] = config["home_area"]
+                    data["prev_target"] = None
+                    data["prev_area"] = None
+                    commitment_manager.remove_commitment(agent_id)
+                simulation_active = True
                 print(f"\n--- New Day - {clock.get_time_string()} ---")
 
             if (simulation_active and clock.get_sim_hour() >= 6):
                 for agent_id, data in agent_executions.items():
+
+                    db_desc, db_emojis = get_plan(agent_id)
+                    current_desc = "\n".join([f"{i+1}) {t}: {a}" for i, (t, a) in enumerate(data["steps"])])
+                    if db_desc != current_desc:
+                        #print(f"[{agent_id}] Detected updated plan, reloading...")
+                        data["steps"] = parse_plan(db_desc)
+                        data["emojis"] = db_emojis
+
                     is_busy = data["active_task"] is not None and not data["active_task"].done()
                     is_cooldown = time.time() < data["is_busy_until"]
 
@@ -550,67 +420,26 @@ def main():
                                 step_emoji = "".join(step_emoji)
                                 
                         future = executor.submit(
-                            execute_agent_action, agent_id, action[1], step_emoji, client, 
-                            agent_state_manager, data, cur_time, conv_manager, agent_executions
+                            execute_agent_action, agent_id, action[1], step_emoji, client, data, cur_time, conv_manager, agent_executions
                         )
-
+                        #print("11. One Execution finished.")
                         data["active_task"] = future
-                        data["is_busy_until"] = time.time() + 6  # Wait 6 real-world seconds
+                        data["is_busy_until"] = time.time() + ACTION_DURATION  # Wait for the action duration
                         data["current_step"] += 1
-
-                for agent_id, data in agent_executions.items():
-                    invite_info = commitment_manager.pop_commitment(data)
-                    if not invite_info:
-                        continue
-
-                    role = invite_info.get("role", "invitee")
-                    if role == "initiator":
-                        decision = commitment_manager.build_initiator_replan(
-                            persona=data["persona"],
-                            invite_info=invite_info,
-                            future_steps=data["steps"],
-                            current_step_idx=data["current_step"],
-                        )
-                    else:
-                        decision = commitment_manager.decide_commitment(
-                            persona=data["persona"],
-                            invite_info=invite_info,
-                            future_steps=data["steps"],
-                            current_step_idx=data["current_step"],
-                        )
-
-                    print(f"[REPLAN] Decision for {agent_id} on {invite_info['event_name']}: {decision['state']}")
-                    
-                    if decision["state"] == "ACCEPT" and decision.get("steps"):
-                        if commitment_replan(agent_id, data, decision["steps"]):
-                            print(f"[REPLAN] {agent_id} partially updated emojis and cleaned up {len(data['steps'])} future steps.")
-
-                            if role != "initiator":
-                                initiator_id = invite_info.get("initiator")
-                                if initiator_id in agent_executions and initiator_id != agent_id:
-                                    initiator_info = {
-                                        "initiator": initiator_id,
-                                        "invitee": agent_id,
-                                        "event_name": invite_info.get("event_name"),
-                                        "start_time": invite_info.get("start_time"),
-                                        "end_time": invite_info.get("end_time"),
-                                        "role": "initiator",
-                                    }
-                                    if commitment_manager.initiator_commitment(agent_executions, initiator_id, initiator_info):
-                                        print(f"[REPLAN] Queued initiator auto-update for {initiator_id} on {invite_info['event_name']}.")
 
             if simulation_active:
                 current_time = clock.get_time_string()
                 if agent_state_manager.state.get("time") != current_time:
                     agent_state_manager.set_time(current_time)
-                client.update_time(current_time)
-                #time.sleep(1)
+                    client.update_time(current_time)
+                time.sleep(0.05)
 
     except KeyboardInterrupt:
         print("\n[SHUTDOWN] KeyboardInterrupt caught...")
         shutdown = True
     finally:        
-        executor.shutdown(wait=False, cancel_futures=True)
+        shutdown = True
+        executor.shutdown(wait=True, cancel_futures=False)
         print("[SHUTDOWN] All agent tasks completed")
         #area_state_manager.stop_listener()
         client.close()

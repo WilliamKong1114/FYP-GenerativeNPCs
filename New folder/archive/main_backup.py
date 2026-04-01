@@ -28,7 +28,7 @@ from langgraph.store.memory import InMemoryStore
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import interrupt
 
-import manage_data
+import chroma_memory_manager
 
 load_dotenv()
 
@@ -347,7 +347,7 @@ builder.add_edge("agent", END)
 memory = InMemorySaver()
 graph = builder.compile(checkpointer=memory, store=store)
 
-runtime_user_id = manage_data.get_or_create_user_id()
+runtime_user_id = chroma_memory_manager.get_or_create_user_id()
 default_agent = Agent(name=runtime_user_id, friendliness=0.8)
 
 config = {
@@ -406,7 +406,7 @@ def summarize_conversation_and_store(user_id: str, raw_log: str = None, log_id: 
         else:
             convs = get_conversation_records()
             if not convs:
-                convs = manage_data.list_conversations(user_id)
+                convs = chroma_memory_manager.list_conversations(user_id)
                 if not convs:
                     return None
 
@@ -442,8 +442,8 @@ def summarize_conversation_and_store(user_id: str, raw_log: str = None, log_id: 
         resp = llm.invoke([system, user_msg])
         summary = getattr(resp, "content", None) or str(resp)
 
-        manage_data.add_memories([summary], user_id=user_id)
-        manage_data.save_user_summary(user_id, summary, log_id=log_id)
+        chroma_memory_manager.add_memories([summary], user_id=user_id)
+        chroma_memory_manager.save_user_summary(user_id, summary, log_id=log_id)
 
         print(f"--- Conversation summary for {user_id} saved ---")
         print(summary)

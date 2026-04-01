@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 from datetime import datetime
+from chroma_client import get_client
+chroma_client = get_client(path="./chroma_db")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "Database", "agent_memory.db")
@@ -94,6 +96,13 @@ class AgentMemoryManager:
         )
         return str(cur.lastrowid)
 
+    def get_reflection(self, user_id: str, limit: int = 5):
+        row = self.conn.execute(
+            "SELECT insight FROM reflection WHERE user_id=? ORDER BY ts DESC LIMIT ?", 
+            (user_id, limit)
+        ).fetchall()
+        return row if row else None
+
     def get_importance_score(self, user_id: str) -> float:
         imp_score_imp = self.conn.execute(
             "SELECT IFNULL(SUM(CAST(importance AS REAL)), 0) FROM summaries"
@@ -130,3 +139,88 @@ class AgentMemoryManager:
             ORDER BY ts DESC LIMIT ?
         """, (user_id, user_id, user_id, limit)).fetchall()
         return [{"source": r[0], "text": r[1], "ts": r[2]} for r in rows]
+    
+    def get_memory(self, query, user_id: str, current_hours: int, partner_id: str = None):
+        try:
+            if isinstance(query, list):
+                query = " ".join(query)
+
+            all_docs = []
+            all_metas = []
+            all_dists = []
+            target_count = 10
+
+            ref_results = chroma_client.get_or_create_collection("reflection").query(
+                query_texts=[query],
+                n_results=target_count,
+                where={"user_id": user_id}
+            )
+
+            if ref_results["documents"] and len(ref_results["documents"][0]) > 0:
+                all_docs.extend(ref_results["documents"][0])
+                all_metas.extend(ref_results["metadatas"][0])
+                all_dists.extend(ref_results["distances"][0])
+
+            current_count = len(all_docs)
+            if current_count < target_count:
+                needed = target_count - current_count
+                sum_results = chroma_client.get_or_create_collection("summary").query(
+                    query_texts=[query],
+                    n_results=needed,
+                    where={"user_id": user_id}
+                )
+
+                if sum_results["documents"] and len(sum_results["documents"][0]) > 0:
+                    all_docs.extend(sum_results["documents"][0])
+                    all_metas.extend(sum_results["metadatas"][0])
+                    all_dists.extend(sum_results["distances"][0])
+
+            if not all_docs:
+                return "No memories found."
+            
+            retrieved_memories = []
+            for doc, meta, dist in zip(all_docs, all_metas, all_dists):
+                relevance = 1.0 / (1.0 + dist)
+                importance = meta.get("importance", 3) / 10.0
+
+                last_accessed = meta.get("modified_on", 0)
+                delta_t = max(0, current_hours - last_accessed)
+                recency = pow(0.99, delta_t)
+
+                final_score = (0.5 * recency) + (0.3 * importance) + (0.2 * relevance)
+
+                if partner_id and partner_id.lower() in doc.lower():
+                    final_score *= 1.5
+                
+                retrieved_memories.append((doc, final_score))
+
+            retrieved_memories.sort(key=lambda x: x[1], reverse=True)
+            top_memories = [m[0] for m in retrieved_memories[:5]]
+            
+            return f"\nRelevant memories: {top_memories}"
+            #Return example: "\nRelevant memories: [memory1, memory2, memory3]"
+
+        except Exception as e:
+            print(f"Error retrieving memory context: {e}")
+            return ""
+
+if __name__ == "__main__":
+    # Test script for get_memory function
+    test_query = "What is the agent's favorite fruit?"
+    test_user_id = "test_user_123"
+    test_current_hours = 100
+    
+    print(f"Testing get_memory with query: '{test_query}'")
+    
+    # Note: This requires a running ChromaDB or appropriate mock
+    # If the collection doesn't exist or is empty, it should return an empty string or relevant message
+    try:
+        memory_result = AgentMemoryManager().get_memory(
+            query=test_query,
+            user_id=test_user_id,
+            current_hours=test_current_hours
+        )
+        print(f"Result: {memory_result}")
+    except Exception as e:
+        print(f"Test failed with error: {e}")
+

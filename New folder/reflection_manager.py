@@ -6,7 +6,7 @@ import traceback
 import re
 
 from agent_memory import AgentMemoryManager
-import manage_data
+import chromaMemory_manager
 from chroma_client import get_client
 from Secure.llm_config import reflect_llm
 
@@ -78,7 +78,6 @@ def run_reflect(agent_id: str, clock, client=None) -> None:
         return
 
     print(f"[REFLECT] {agent_id}: stored {len(insights)} insights.")
-
 
 def _generate_questions(agent_id: str) -> list[str]:
     records = memory_manager.get_mixed_records(agent_id, RECENT_RECORDS_LIMIT)
@@ -198,7 +197,7 @@ def _synthesize_and_store(agent_id: str, memories: list[dict], clock) -> list[di
                 continue
 
         memory_manager.save_reflection(user_id=agent_id, insight=insight_text, importance=9, cited_memories=cited_ids)
-        manage_data.add_memories([insight_text], user_id=agent_id, importance=9, game_hour=game_hour)
+        chromaMemory_manager.add_memories([insight_text], user_id=agent_id, importance=9, type="reflection", game_hour=game_hour)
         #print(f"[REFLECT] [{agent_id}] {insight_text}")
 
     return insights

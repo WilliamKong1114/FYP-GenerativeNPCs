@@ -1,14 +1,15 @@
+import json
+import os
 import random
+import re
 import sqlite3
 import sys
 import threading
-import queue
 import uuid
-import os
-import json
-import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from typing import Dict, List, Optional
+
 from dotenv import load_dotenv
-from typing import List, Optional, Dict
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -17,23 +18,21 @@ if BASE_DIR not in sys.path:
 from Secure.llm_config import routing_llm
 from World_Environment.agent_state_manager import AgentStateManager
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "Database", "places.db")
 
 load_dotenv()
 
 class EnvironmentNode:
-    def __init__(self, name: str, node_type: str, parent: Optional['EnvironmentNode'] = None, 
-                 uuid_str: str = None, game_object_name: str = None, state: str = "empty"):
+    def __init__(self, name: str, node_type: str, parent: Optional["EnvironmentNode"] = None, uuid_str: str = None, game_object_name: str = None, state: str = "empty"):
         self.name = name
         self.node_type = node_type
         self.parent = parent
-        self.children: List['EnvironmentNode'] = []
+        self.children: List["EnvironmentNode"] = []
         self.uuid = uuid_str if uuid_str else str(uuid.uuid4())
         self.game_object_name = game_object_name
         self.state = state
-    
-    def add_child(self, child: 'EnvironmentNode'):
+
+    def add_child(self, child: "EnvironmentNode"):
         self.children.append(child)
         child.parent = self
 
@@ -44,12 +43,13 @@ class EnvironmentNode:
             path.append(current.name)
             current = current.parent
         return "/".join(reversed(path))
-    
+
     def __repr__(self):
         return f"<EnvironmentNode {self.name} ({self.node_type})>"
 
+
 class EnvironmentTree:
-    def __init__(self, db_path: str = DB_PATH, max_depth: int = 3):
+    def __init__(self, db_path: str = DB_PATH, max_depth: int = 5):
         self.db_path = db_path
         self.max_depth = max_depth
         self.lock = threading.RLock()
@@ -57,22 +57,18 @@ class EnvironmentTree:
         self.nodes: Dict[str, EnvironmentNode] = {}
         self.location_cache: Dict[str, List[EnvironmentNode]] = {}
         self.action_map = self.load_action_map()
-        self._routing_queue: queue.Queue[tuple[tuple[str, str, str], str]] = queue.Queue()
-        self._routing_pending: Dict[tuple[str, str, str], Dict[str, object]] = {}
         self._routing_timeout = 10.0
-        self._routing_worker = threading.Thread(
-            target=self._routing_worker_loop,
-            daemon=True,
-            name="LocationRoutingWorker"
+        self._routing_executor = ThreadPoolExecutor(
+            max_workers=5,
+            thread_name_prefix="LocationRouting",
         )
-        self._routing_worker.start()
 
     def load_action_map(self) -> Dict[str, List[str]]:
         config_path = os.path.join(BASE_DIR, "World_Environment", "action_config.json")
         mapping = {}
-        with open(config_path, 'r') as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # Programmatic Population: Flatten grouped verbs into lookup keys
+            # Programmatic population: flatten grouped verbs into lookup keys.
             for entry in data:
                 for verb in entry.get("verbs", []):
                     mapping[verb.lower()] = entry.get("targets", [])
@@ -84,7 +80,9 @@ class EnvironmentTree:
     def load(self):
         with self.lock:
             conn = self.get_conn()
-            cur = conn.execute("SELECT uuid, name, type, parent_uuid, game_object_name, state FROM environment_tree")
+            cur = conn.execute(
+                "SELECT uuid, name, type, parent_uuid, game_object_name, state FROM environment_tree"
+            )
             rows = cur.fetchall()
             conn.close()
 
@@ -97,87 +95,97 @@ class EnvironmentTree:
                 self.nodes[uid] = node
                 if pid:
                     parent_map[uid] = pid
-            
+
             for uid, pid in parent_map.items():
                 if pid in self.nodes:
                     parent = self.nodes[pid]
                     parent.add_child(self.nodes[uid])
-            
+
             potential_roots = [n for n in self.nodes.values() if n.parent is None]
             self.root = potential_roots[0] if potential_roots else None
 
     def save_node(self, node: EnvironmentNode):
         with self.lock:
             conn = self.get_conn()
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO environment_tree (uuid, name, type, parent_uuid, game_object_name, state)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (node.uuid, node.name, node.node_type, node.parent.uuid if node.parent else None, node.game_object_name, node.state))
+            """, (node.uuid, node.name, node.node_type, node.parent.uuid if node.parent else None, node.game_object_name, node.state),
+            )
             conn.commit()
             conn.close()
 
-    def delete_node(self, uuid: str):
+    def delete_node(self, uuid_str: str):
         with self.lock:
-            if uuid in self.nodes:
-                node = self.nodes[uuid]
+            if uuid_str in self.nodes:
+                node = self.nodes[uuid_str]
                 if node.parent:
                     node.parent.children.remove(node)
                 for child in node.children:
                     child.parent = None
-                del self.nodes[uuid]
+                del self.nodes[uuid_str]
 
             conn = self.get_conn()
-            conn.execute("DELETE FROM environment_tree WHERE uuid = ?", (uuid,))
+            conn.execute("DELETE FROM environment_tree WHERE uuid = ?", (uuid_str,))
             conn.commit()
             conn.close()
-        
-    def add_node(self, name: str, node_type: str, parent: Optional[EnvironmentNode] = None,  
-                 game_object_name: str = None, state: str = "empty") -> EnvironmentNode:
+
+    def add_node(self, name: str, node_type: str, parent: Optional[EnvironmentNode] = None, game_object_name: str = None, state: str = "empty") -> EnvironmentNode:
         with self.lock:
             node = EnvironmentNode(name, node_type, parent, game_object_name=game_object_name, state=state)
             if parent:
                 parent.add_child(node)
             elif not self.root:
                 self.root = node
-            
+
             self.nodes[node.uuid] = node
             self.save_node(node)
             return node
-        
+
     def find_suitable_location(self, action: str, agent_id: str) -> List[EnvironmentNode]:
         if not self.root:
             self.load()
 
         agent_name = agent_id
         target = None
-        candidates = []
+        candidates: List[EnvironmentNode] = []
 
-        type_1 = {"Bed", "House", "Hearth"}
+        type_1 = {"Bed", "House", "Hearth", "Table"}
         type_2 = {"Church", "River", "Well"}
-        type_3 = {("Wilton", "Bakery"): ["Table_Bakery", "Storage_Bakery"], 
-                    ("Warwicke", "Blacksmith"): ["Table_Blacksmith", "Storage_Blacksmith"],
-                    ("Lona", "Bed_Wilson"): ["Bed_Wilson"],
-                    ("Lona", "House_Wilton"): ["House_Wilson"],
-                    ("Lona", "Hearth_Wilson"): ["Hearth_Wilson"]}
-    
+        type_3 = {
+            ("Wilton", "Bakery"): ["Table_Bakery", "Storage_Bakery"],
+            ("Lona", "Bakery"): ["Table_Bakery", "Storage_Bakery"],
+            ("Heath", "Bakery"): ["Table_Bakery", "Storage_Bakery"],
+            ("Warwicke", "Blacksmith"): ["Table_Blacksmith", "Storage_Blacksmith"],
+            ("Lona", "Bed_Wilton"): ["Bed_Wilton"],
+            ("Lona", "House_Wilton"): ["House_Wilton"],
+            ("Lona", "Hearth_Wilton"): ["Hearth_Wilton"],
+            ("Heath", "Bed_Wilton"): ["Bed_Wilton"],
+            ("Heath", "House_Wilton"): ["House_Wilton"],
+            ("Heath", "Hearth_Wilton"): ["Hearth_Wilton"],
+        }
+
         for n in type_1:
             if re.search(re.escape(n), action, re.IGNORECASE):
                 target_name = f"{n}_{agent_name}"
                 with self.lock:
                     candidates = [
-                        node for node in self.nodes.values()
+                        node
+                        for node in self.nodes.values()
                         if node.name == target_name and node.state == "empty"
                     ]
                 if candidates:
                     target = candidates[0]
                     break
-                
+
         if not target:
             for n in type_2:
                 if re.search(re.escape(n), action, re.IGNORECASE):
                     with self.lock:
                         candidates = [
-                            node for node in self.nodes.values()
+                            node
+                            for node in self.nodes.values()
                             if node.name == n and node.state == "empty"
                         ]
                     if candidates:
@@ -190,48 +198,41 @@ class EnvironmentTree:
                     chosen_name = random.choice(loc_list)
                     with self.lock:
                         candidates = [
-                            node for node in self.nodes.values()
+                            node
+                            for node in self.nodes.values()
                             if node.name == chosen_name and node.state == "empty"
                         ]
                     if candidates:
                         target = candidates[0]
                         break
 
-        if not target:
+        if not target and self.root:
             target = self.find_target_location(self.root, agent_name, action)
             if target and target.state != "empty":
                 target = None
-        
-        # Build path
-        path = []
+
+        path: List[EnvironmentNode] = []
         current = target
         while current:
             path.append(current)
             current = current.parent
         path.reverse()
+
         with self.lock:
             self.location_cache[action] = path
         return path
 
-    def _routing_worker_loop(self) -> None:
-        while True:
-            key, prompt = self._routing_queue.get()
-            entry = None
-            try:
-                response = routing_llm.invoke(prompt).content.strip()
-                with self.lock:
-                    entry = self._routing_pending.get(key)
-                    if entry is not None:
-                        entry["response"] = response
-            finally:
-                if entry is not None:
-                    ready_event = entry.get("event")
-                    if isinstance(ready_event, threading.Event):
-                        ready_event.set()
+    def _invoke_routing_llm(self, prompt: str) -> Optional[str]:
+        try:
+            response = routing_llm.invoke(prompt).content.strip()
+            return response if isinstance(response, str) else None
+        except Exception as exc:
+            print(f"[LOCATION] Routing invoke failed: {exc}")
+            return None
 
     def request_routing_path(self, action: str, agent_name: str, candidate_info: str) -> Optional[str]:
-        key = (agent_name.strip(), action.strip().lower(), candidate_info)
-        persona = AgentStateManager().get_agent_state().get(agent_name).get("persona")
+        agent_state = AgentStateManager().get_agent_state().get(agent_name, {})
+        persona = agent_state.get("persona", "Unknown")
         prompt = (
             f"Action: {action}\n"
             f"Context: You are {agent_name} and you are trying to find the best location within the candidates list that fit to perform the action.\n"
@@ -249,66 +250,36 @@ class EnvironmentTree:
             "- Do NOT include explanations, descriptions, reasoning, extra text, state, type, or any other characters.\n"
             "- Do NOT add quotes, punctuation or parentheses.\n"
             "Examples of correct paths:\n"
-            '- World/House_Wilton/Hearth_Wilton\n'
-            '- World/Bakery/ShopArea_Bakery\n'
-            '- World/House_Wilton/Hearth_Wilton\n'
+            "- World/House_Wilton/Hearth_Wilton\n"
+            "- World/Bakery/ShopArea_Bakery\n"
+            "- World/House_Wilton/Hearth_Wilton\n"
         )
 
-        with self.lock:
-            entry = self._routing_pending.get(key)
-            if entry is None:
-                entry = {
-                    "event": threading.Event(),
-                    "response": None,
-                    "error": None,
-                    "waiters": 0,
-                }
-                self._routing_pending[key] = entry
-                self._routing_queue.put((key, prompt))
-            entry["waiters"] = int(entry.get("waiters", 0)) + 1
-
-        wait_event = entry["event"]
-        if not isinstance(wait_event, threading.Event):
-            return None
-
-        completed = wait_event.wait(timeout=self._routing_timeout)
-
-        with self.lock:
-            current_entry = self._routing_pending.get(key, entry)
-            response = current_entry.get("response")
-            error = current_entry.get("error")
-            current_waiters = int(current_entry.get("waiters", 1)) - 1
-
-            if current_waiters <= 0:
-                self._routing_pending.pop(key, None)
-            else:
-                current_entry["waiters"] = current_waiters
-
-        if not completed:
+        future = self._routing_executor.submit(self._invoke_routing_llm, prompt)
+        try:
+            return future.result(timeout=self._routing_timeout)
+        except TimeoutError:
             print(f"[LOCATION] Routing timeout for '{action}'")
+            future.cancel()
+            return None
+        except Exception as exc:
+            print(f"[LOCATION] Routing failed for '{action}': {exc}")
             return None
 
-        if error:
-            print(f"[LOCATION] Routing failed for '{action}': {error}")
-            return None
-
-        return response if isinstance(response, str) else None
-    
     def build_candidate_list(self, node: EnvironmentNode, max_depth: int = 5) -> str:
         from collections import defaultdict
+
         grouped_candidates = defaultdict(list)
-        
+
         def traverse(current: EnvironmentNode, depth: int = 0):
             if depth > max_depth:
                 return
-            
-            # If it's a leaf node and empty, group it by its parent's path
+
             if not current.children and current.state == "empty":
                 if current.parent:
                     parent_path = current.parent.get_path()
                     grouped_candidates[parent_path].append(current.name)
                 else:
-                    # Root or orphaned node
                     grouped_candidates["/"].append(current.name)
                 return
 
@@ -326,16 +297,16 @@ class EnvironmentTree:
                     formatted_output.append(f"- {objects[0]}")
                 else:
                     formatted_output.append(f"- {path}/{objects[0]}")
-                
+
         return "\n".join(formatted_output)
-    
+
     def build_area_list(self, node: EnvironmentNode, max_depth: int = 5) -> str:
         areas = set()
-        
+
         def traverse(current: EnvironmentNode, depth: int = 0):
             if depth > max_depth:
                 return
-            
+
             if not current.children:
                 if current.parent:
                     areas.add(current.parent.name)
@@ -349,22 +320,23 @@ class EnvironmentTree:
         with self.lock:
             traverse(node)
             formatted_output = [f"{area}" for area in sorted(list(areas))]
-                
+
         return ", ".join(formatted_output)
-    
+
     def find_target_location(self, current_node: EnvironmentNode, agent_name: str, action: str) -> Optional[EnvironmentNode]:
         if not current_node.children:
             return current_node
 
         candidate_info = self.build_candidate_list(current_node)
         response = self.request_routing_path(action, agent_name, candidate_info)
-        target = self.find_node_by_path(current_node, response) if response else self.find_node_by_path(current_node, f"World/House_{agent_name}/House_{agent_name}")
+        fallback = f"World/House_{agent_name}/House_{agent_name}"
+        target = self.find_node_by_path(current_node, response) if response else self.find_node_by_path(current_node, fallback)
         return target or current_node
-            
+
     def find_node_by_path(self, start_node: EnvironmentNode, target_path: str) -> Optional[EnvironmentNode]:
-        if not start_node:
+        if not start_node or not target_path:
             return None
-        
+
         segments = target_path.strip().split("/")
         current = start_node
 
@@ -376,16 +348,22 @@ class EnvironmentTree:
                 break
         else:
             return current
-        
+
+        from collections import deque
         leaf_name = segments[-1]
-        with self.lock:
-            for node in self.nodes.values():
-                if node.name == leaf_name and not node.children:
-                    return node
+        queue = deque([self.root if self.root else start_node])
+        
+        while queue:
+            node = queue.popleft()
+            if node.name == leaf_name and not node.children:
+                return node
+            queue.extend(node.children)
+            
         return None
 
     def get_location(self, node: EnvironmentNode) -> str:
         return node.game_object_name or node.name
+
 
 def main():
     agents_state = AgentStateManager().get_agent_state()
@@ -394,7 +372,7 @@ def main():
             "id": name,
             "persona": data["persona"],
             "home_node": data["home_node"],
-            "home_area": data["home_area"]
+            "home_area": data["home_area"],
         }
         for name, data in agents_state.items()
     ]
@@ -408,21 +386,30 @@ def main():
             "is_busy_until": 0,
             "is_chatting": False,
             "is_reflecting": False,
-            "active_task": None,    # Track running future
-            "current_target": config["home_node"],  # Track current target node
-            "current_area": config["home_area"],    # Track current area
+            "active_task": None,
+            "current_target": config["home_node"],
+            "current_area": config["home_area"],
             "prev_target": None,
-            "prev_area": None
-        } for config in agents_config
+            "prev_area": None,
+        }
+        for config in agents_config
     }
+
+    _ = agent_executions
 
     tree = EnvironmentTree()
     tree.load()
-    path_nodes = tree.find_suitable_location("Woke up at House_Wilton, checked on Heath, and lit the hearth to start breakfast preparations in the kitchen.", agent_id="Wilton")
+    path_nodes = tree.find_suitable_location(
+        "Woke up at House_Wilton, checked on Heath, and lit the hearth to start breakfast preparations in the kitchen.",
+        agent_id="Wilton",
+    )
+    if not path_nodes:
+        print("No target found")
+        return
+
     target_node = path_nodes[-1]
     target_name = tree.get_location(target_node)
     print(target_name)
-    
+
 if __name__ == "__main__":
     main()
-

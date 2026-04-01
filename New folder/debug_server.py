@@ -4,11 +4,13 @@ from World_Environment.simulation_clock import SimulationClock
 from conversation_manager import ConversationManager
 from execute_plan import get_graph
 from World_Environment.area_state_manager import AreaSystem
+from Interaction_manager import UserToAgentInteractManager
 
 load_dotenv()
 app = Flask(__name__)
 clock = SimulationClock(time_scale=90.0)
 conv_manager = ConversationManager(graph=get_graph(), clock=clock, debug_mode=True)
+user_chat_manager = UserToAgentInteractManager()
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -105,6 +107,45 @@ def generate_conversation():
         "status": "success",
         "dialogue": dialogue_lines or [],
     })
+
+
+@app.route('/user-chat/starters', methods=['POST'])
+def user_chat_starters():
+    data = request.json or {}
+    agent_id = data.get("agent_id")
+    payload = user_chat_manager.get_starter_questions(agent_id=agent_id)
+    return jsonify(payload)
+
+
+@app.route('/user-chat/start', methods=['POST'])
+def user_chat_start():
+    data = request.json or {}
+    agent_id = data.get("agent_id")
+    starter_question_id = data.get("starter_question_id")
+    starter_question_text = data.get("starter_question_text")
+
+    try:
+        payload = user_chat_manager.start_conversation(
+            agent_id=agent_id,
+            starter_question_id=starter_question_id,
+            starter_question_text=starter_question_text,
+        )
+        return jsonify(payload)
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route('/user-chat/choose', methods=['POST'])
+def user_chat_choose():
+    data = request.json or {}
+    session_id = data.get("session_id")
+    option_id = data.get("option_id")
+
+    try:
+        payload = user_chat_manager.choose_option(session_id=session_id, option_id=option_id)
+        return jsonify(payload)
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
     
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)

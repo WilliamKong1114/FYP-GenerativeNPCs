@@ -47,7 +47,7 @@ class AreaStateManager:
                 cur = conn.execute("SELECT name FROM agents")
                 return [row[0] for row in cur.fetchall()]
 
-    def set_agent_in_area(self, agent: str, area: str, status: str):
+    def set_agent_in_area(self, agent: str, status: str):
         with self.lock:
             with self._get_conn() as conn:
                 if status == "enter":

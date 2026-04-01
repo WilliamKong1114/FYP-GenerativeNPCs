@@ -7,18 +7,14 @@ import traceback
 import time
 from typing import List, Sequence, Tuple
 from Secure.llm_config import commitment_llm
-from World_Environment.simulation_clock import SimulationClock
-
+from planner import get_plan, modify_plan, parse_plan
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 Step = Tuple[str, str]
 
 commitment_queue: queue.Queue[tuple[list[str], dict, str, str]] = queue.Queue()
-pending_commitment_keys: set[str] = set()
-pending_lock = threading.Lock()
-agent_exec_lock = threading.Lock()
-pending_commitment_lock = threading.Lock()
-maximum_commitment = 2
-action_window = 3
-
+_commitment_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="CommitmentWorker")
+_commitment_thread = None
+MAXIMUM_COMMITMENTS = 2
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "Database", "agent_memory.db")
 
@@ -32,6 +28,7 @@ class CommitmentManager:
             INSERT INTO commitments (invitee_id, initiator_id, event_name, start_time, end_time, ts)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (invitee_id, initiator_id, event_name, start_time, end_time, ts))
+        print(f"[COMMITMENT] Saved {event_name} for {invitee_id} to database.")
 
     def get_commitments(self, agent_id: str) -> list[dict]:
         rows = self.conn.execute(
@@ -39,7 +36,7 @@ class CommitmentManager:
         ).fetchall()
 
         if not rows:
-            return None
+            return []
         
         commitment_list = [
             f"{n[0]}: {n[1]} from {n[2]} to {n[3]}" for n in rows
@@ -49,30 +46,46 @@ class CommitmentManager:
     def remove_commitment(self, agent_id: str):
         self.conn.execute("DELETE FROM commitments WHERE invitee_id=?", (agent_id,))
 
-    def replan_steps(self, original_steps: List[Step], original_emojis: List[str], new_steps_section: List[Step], new_emoji_section: List[str], current_step_idx: int) -> Tuple[List[Step], List[str]]:
-        updated_steps = list(original_steps)
-        updated_emojis = list(original_emojis)
+    def pop_commitment(self, agent_state: dict):
+        pending = agent_state.get("pending_commitments")
+        if not pending:
+            return None
+        return pending.pop(0)
 
-        time_to_index = {t: i for i, (t, _) in enumerate(original_steps)}
+    def pending_steps(self, steps: List[Step], start_time: str, end_time: str) -> List[Step]:
+        try:
+            def round_to_30(time_str: str) -> str:
+                h, m = map(int, time_str.split(':'))
+                if m < 15: m = 0
+                elif m < 45: m = 30
+                else:
+                    m = 0
+                    h = (h + 1) % 24
+                return f"{h:02d}:{m:02d}"
 
-        for i, (t, new_action) in enumerate(new_steps_section):
-            idx = time_to_index.get(t)
-            if idx is not None:
-                updated_steps[idx] = (t, new_action)
-                updated_emojis[idx] = new_emoji_section[i]
+            rounded_start = round_to_30(start_time)
+            rounded_end = round_to_30(end_time)
 
-        """         
-        final_steps = []        # filter out past steps
-        final_emojis = []
+            window_steps = [
+                (t, desc) for t, desc in steps
+                if rounded_start <= t <= rounded_end
+            ]    
+            return window_steps
         
-        for idx, step in enumerate(updated_steps):
-            if idx >= current_step_idx:
-                final_steps.append(step)
-                final_emojis.append(updated_emojis[idx])
-        return final_steps, final_emojis"""
-        return updated_steps, updated_emojis
+        except Exception as e:
+            print(f"[COMMITMENT] Error in pending_steps: {e}\n{traceback.format_exc()}")
+            return []
+    
+    def assign_commitment(self, dialogue_lines, agent_executions, current_time):    #Queue commitment check when a conversation happens
+        if not dialogue_lines:
+            return False
 
-    def check_commitment(self, dialogue_lines, agent_executions, sim_time):    
+        request = "\n".join(dialogue_lines)
+        commitment_queue.put((list(dialogue_lines), agent_executions, request, current_time))
+        print("[COMMITMENT] Queued invitation analysis.")
+        return True
+    
+    def check_commitment(self, dialogue_lines, agent_executions, sim_time):    #identify invitation within conversation
         dialogue_text = "\n".join(dialogue_lines)
 
         prompt = f"""
@@ -85,26 +98,28 @@ class CommitmentManager:
         3. event_name: What the event is (e.g., "Meet at tavern", "Go fishing").
         4. start_time: The time needs to be in HH:MM format (24h).
             - This is the current time: {sim_time}. 
-            - You MUST choose a start_time that is AT LEAST 2 hour later than the current time.
+            - You MUST choose a start_time that is AT LEAST 3 hour later than the current time.
             - Rules:
-                - start_time must NOT be earlier than current_time + 02:00
+                - start_time must NOT be earlier than current_time + 03:00
                 - start_time must NOT be within the next 60 minutes
-                - start_time >= current_time + 02:00
+                - start_time >= current_time + 03:00
             - Example:
-            - 06:00 -> earliest allowed start_time = 08:00
-            - 09:30 -> earliest allowed start_time = 11:30
+            - 06:00 -> earliest allowed start_time = 09:00
+            - 09:30 -> earliest allowed start_time = 12:30
 
-        5. end_time: Estimated end time. The time needs to be in HH:MM format (24h). Needs to be reasonable based on the event type and start_time.
+        5. end_time: Estimated end time. The time needs to be in HH:MM format (24h). The the time duration MUST NOT exceed 3 hours.
 
         Constraints:
         - If no clear invitation is found, return the word None without any quotes or JSON formatting.
         - If an invitation is found, output MUST be a valid JSON object.
         - Do NOT output any lists, bullet points, numbered items, explanations, reasoning or statement.
+        - The initiator and target must be valid agent names.
+        - Ensure the start_time and end_time fall within the 30-minute slots (06:00, 06:30, 07:00, ..., 21:30, 22:00).
 
         JSON Structure if invitation is found:
         {{
-            "initiator": "...",
-            "invitee": "...",
+            "initiator (agent name)": "...",
+            "invitee" (agent name): "...",
             "event_name": "...",
             "start_time": "HH:MM",
             "end_time": "HH:MM"
@@ -119,69 +134,40 @@ class CommitmentManager:
             response = response.strip("`").strip("json").strip()
 
         if response.lower() == "none":
+            print(f"[COMMITMENT] No invitation detected in the dialogue.")
             return
         
-        invite = json.loads(response)
-        target_id = invite["invitee"]
+        invite_info = json.loads(response)
+        target_id = invite_info.get("invitee")
         
         existing_commitment = self.get_commitments(target_id)
-        if existing_commitment and len(existing_commitment) >= maximum_commitment:
-            print(f"[COMMITMENT] Skipping commitment check for {target_id} due to already existing commitments [{maximum_commitment}].")
+        if existing_commitment and len(existing_commitment) >= MAXIMUM_COMMITMENTS:
+            print(f"[COMMITMENT] Skipping commitment check for {target_id} due to already existing commitments [{MAXIMUM_COMMITMENTS}].")
             return
         
-        if target_id not in agent_executions:
-            return
+        print(f"[COMMITMENT] Detected invitation: {invite_info['initiator']} -> {invite_info['invitee']} for {invite_info['event_name']} at {invite_info['start_time']}")
+        #self.initiator_commitment(agent_executions, target_id, invite)
+        self.decide_commitment_invitee(agent_executions, invite_info)
 
-        print(f"[COMMITMENT] Detected invitation: {invite['initiator']} -> {invite['invitee']} for {invite['event_name']} at {invite['start_time']}")
-        self.initiator_commitment(agent_executions, target_id, invite)
-
-    def initiator_commitment(self, agent_executions: dict, agent_id: str, invite_info: dict) -> bool:
-        with agent_exec_lock:
-            target_state = agent_executions.get(agent_id)
-            if not target_state:
-                return False
-
-            pending = target_state["pending_commitments"]
-            pending.append(invite_info)
-        return True
-
-    def pop_commitment(self, agent_state: dict):
-        with pending_commitment_lock:
-            pending = agent_state.get("pending_commitments")
-            if not pending:
-                return None
-            return pending.pop(0)
-
-    def assign_commitment(self, dialogue_lines, agent_executions, current_time):
-        if not dialogue_lines:
-            return False
-
-        request = "\n".join(dialogue_lines)
-        with pending_lock:
-            if request in pending_commitment_keys:
-                return False
-            pending_commitment_keys.add(request)
-
-        commitment_queue.put((list(dialogue_lines), agent_executions, request, current_time))
-        print("[COMMITMENT] Queued invitation analysis.")
-        return True
-
-    def decide_commitment(self, persona: str, invite_info: dict, future_steps: List[Step], current_step_idx: int):
-        event_name = invite_info["event_name"]
-        invitee_id = invite_info["invitee"]
-        initiator_id = invite_info["initiator"]
-
-        existing_commitment = self.get_commitments(invitee_id)
+    def decide_commitment_invitee(self, agent_executions: dict, invite_info: dict):     #for invitee to decide whether accept the invitation, and if accept, what steps to replan within the event window
+        event_name = invite_info.get("event_name")
+        invitee_id = invite_info.get("invitee")
+        initiator_id = invite_info.get("initiator")
+        start_time = invite_info.get("start_time")
+        end_time = invite_info.get("end_time")
+        persona = agent_executions[invitee_id].get("persona")
+        steps = agent_executions[invitee_id].get("steps")
 
         from preference_manager import PreferenceManager
         impression_score = PreferenceManager().get_preference_score(invitee_id, initiator_id)
         relationship_type = PreferenceManager().get_relationship_type(invitee_id, initiator_id)
-
+        
+        existing_commitment = self.get_commitments(invitee_id)
         additional_prompt = ""
         if existing_commitment:
             additional_prompt = f"""
             - Here is a list of existing commitments you have in this format: ["commitment_id"]: ["event_name"] from ["start_time"] to ["end_time"]".
-            - Search for any time conflicts with the new event "{event_name}" starting at {invite_info["start_time"]} and ending at {invite_info["end_time"]}.
+            - Search for any time conflicts with the new event "{event_name}" starting at {start_time} and ending at {end_time}.
             """
         else:
             additional_prompt = "There are no existing commitments from the CommitmentManager."
@@ -194,221 +180,237 @@ class CommitmentManager:
             print(f"[COMMITMENT] Declined {event_name} from {initiator_id} due to Stranger relationship")
             return {"state": "DECLINE", "steps": None}
 
-        current_task_time = "Unknown"
-        current_task_desc = "Unknown"
-        if 0 <= current_step_idx < len(future_steps):
-            current_task_time, current_task_desc = future_steps[current_step_idx]
-            
+        window_steps = self.pending_steps(steps, start_time, end_time)
+
         prompt = f"""
             You are a scheduling agent acting on behalf of {invitee_id}.
 
             Context:
-            - You have been invited to the event "{event_name}" starting at {invite_info["start_time"]} by {invite_info["initiator"]}.
-            - Your upcoming schedule (future_steps) are: {future_steps}.
-            - Current task at this index: [{current_task_time}] {current_task_desc}.
-            {additional_prompt}
+            - Event: {event_name}
+            - Event start time: {start_time}
+            - Event end time: {end_time}
+            - current steps: {window_steps}.
 
             - Decide whether to ACCEPT or DECLINE the invitation based on the importance score ONLY. Follows the instructions:
-                1. Compare the new commitment with both `future_steps` and any `existing_commitments` for time conflicts.
+                1. Compare the new commitment with both `current_steps` and any `existing_commitments` for time conflicts.
                 2. Evaluate importance based on:
                     - Persona: {persona} (Basic importance score 0-10).
                     - Relationship with initiator: {relationship_type}. (Variables: Family: 1.5, Friend: 1.2, Acquaintance: 0.7).
-                3. Calculate and compare scores:
-                    - If the new commitment has a higher importance score than the conflicting task or existing commitment, ACCEPT it.
-                    - Otherwise, DECLINE it.
-                Output if DECLINING (Do NOT modify any steps):
+                3. Calculate and compare scores. If the new commitment has a higher importance score than the conflicting task or existing commitment, ACCEPT it. Otherwise, DECLINE it.
+                Output if DECLINING (Do NOT modify any future steps):
                 {{
                     "state": "DECLINE",
                     "steps": null,
-                    "reason": "Original [task/commitment]: [basic score] * [relationship variable] = [final result], New commitment: [basic score] * [relationship variable] = [final result]. The new commitment is less important."
+                    "reason": "current steps [task/commitment]: [basic score] * [relationship variable] = [final result], New commitment: [basic score] * [relationship variable] = [final result]. The new commitment is less important."
                 }}
 
-            \nThe existing_commitment checker: {{additional_prompt}}\n
+            \nThe existing_commitment checker: {additional_prompt}\n
             
             If ACCEPTING:
-            - You must adjust `future_steps` to include the event and adapt surrounding actions.
-            - Identify the step whose time exactly matches {invite_info["start_time"]}.
-            - The event should be ended at {invite_info["end_time"]}.
-            - You may modify:
-            - Up to {action_window} steps BEFORE event_start, and
-            - Up to {action_window} steps AFTER event_start,
-            - plus the step at event_start itself.
-            - This means you can adjust at most:
-            - {action_window} steps before + 1 event step + {action_window} steps after.
-            - You may choose to modify fewer steps than this maximum, but NEVER more.
+            - Choose the tasks 
+            - Replace steps that matches the start time and end time, and tasks within.
+            - Maintain the exact original order of the steps. You may rewrite the content of the steps in the selected window, but you must not reorder any steps.
+            - Transitions should be appeared at the starting and ending time slot of the modified window, and they must logically connect the event to the rest of the schedule.
 
             Constraints on modified steps:
             - Do NOT create or remove time slots; only rewrite the content of existing steps within the allowed window.
-            - Keep all times at 30-minute intervals and in correct 24-hour HH:MM format.
-            - Ensure the full day still covers every 30-minute slot from 06:00 to 22:00.
+            - Only rewrite the content of the steps within the selected inclusive window.
+            - All times must remain in 30-minute intervals in correct 24-hour HH:MM format.
             - Maintain a simple, grounded tone (not poetic or overly formal) with 15-20 words per action.
             - A specific area or object in each action (e.g., "at the herb garden", "in the weaving hut").
             - Provide transition actions that logically connect the event to the rest of the schedule.
-            - Respect any existing activity descriptions and time ranges.
-            For example, if the original description for 08:00-10:00 is: "Gathered herbs and fallen branches in the woods from 08:00 to 10:00.",
-            then only propose tasks related to gathering herbs and fallen branches in the woods during that period.
 
             Output format (STRICT)
-            - Always output a single JSON object with this exact structure, and nothing else.
-            - For example, if the event is at 18:00 and you decide to change tasks within the +/- {action_window} window:        
-            - The example output would be:
+            - Output a single JSON object with the exact structure ONLY.
+            - Do NOT output any lists, bullet points, numbered items, explanations, reasoning or statement.
+            - For example, if the event starts at 18:00 and ends at 19:00. The example output would be:
             {{
             "state": "ACCEPT",
-            "steps": "15) 17:00: Action 1\n16) 17:30: Action 2\n17) 18:00: Action 3",
+            "steps": "15) 18:00: Action 1\n16) 18:30: Action 2\n17) 19:00: Action 3",
             "reason": Provide a brief explanation of why you accepted the commitment, with the importance scores and relationship factors of both comparing element mentioned.
             }}"""
-                
-        response = commitment_llm.invoke(prompt).content.strip()
+        
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future = executor.submit(commitment_llm.invoke, prompt)
+            try:
+                response = future.result(timeout=20).content.strip()
+            except TimeoutError:
+                print(f"[COMMITMENT] LLM response timed out for {invitee_id} on event {event_name}. Defaulting to DECLINE.")
+                return {"state": "DECLINE", "steps": None, "reason": "LLM response timed out."}
+
         if response.startswith("```"):
             response = response.strip("`").strip("json").strip()
 
-        decision_data = json.loads(response)
+        decision_data = json.loads(response, strict=False)
         state = str(decision_data.get("state", "DECLINE")).upper()
-        steps_text = decision_data.get("steps")
+        new_steps = decision_data.get("steps")
 
         if (state != "ACCEPT"):
+            print(f"[COMMITMENT] {invitee_id} declined the invitation for {event_name}. Reason: {decision_data.get('reason', 'No reason provided')}")
             return {"state": "DECLINE", "steps": None}
 
-        if not isinstance(steps_text, str) or not steps_text.strip():
+        if not isinstance(new_steps, str) or not new_steps.strip():
+            print(f"[COMMITMENT] Invalid or empty steps provided by LLM for {invitee_id} on event {event_name}. Defaulting to DECLINE.")
             return {"state": "DECLINE", "steps": None}
 
-        self.set_commitment(invitee_id, initiator_id, event_name, invite_info["start_time"], invite_info["end_time"])
-        print(f"[COMMITMENT] Saved {event_name} for {invitee_id} to database.")
+        self.set_commitment(invitee_id, initiator_id, event_name, start_time, end_time)
 
-        return {"state": "ACCEPT", "steps": steps_text}
+        initiator_persona = agent_executions[initiator_id].get("persona")
+        initiator_steps = agent_executions[initiator_id].get("steps")
+        self.tasks_replan(invitee_id, new_steps, steps)
+        self.build_commitment_initiator(initiator_persona, invite_info, initiator_steps)
 
-    def build_initiator_replan(self, persona: str, invite_info: dict, future_steps: List[Step], current_step_idx: int):
+    def build_commitment_initiator(self, persona: str, invite_info: dict, steps: List[Step]):    #after the invitee accepts the commitment, the initiator also needs to replan their schedule to fit the event in.
         initiator_id = invite_info["initiator"]
-        invitee_id = invite_info.get("invitee")
+        #invitee_id = invite_info.get("invitee")
         event_name = invite_info["event_name"]
+        start_time = invite_info.get("start_time")
+        end_time = invite_info.get("end_time")
 
-        current_task_time = "Unknown"
-        current_task_desc = "Unknown"
-        if 0 <= current_step_idx < len(future_steps):
-            current_task_time, current_task_desc = future_steps[current_step_idx]
+        window_steps = self.pending_steps(steps, start_time, end_time)
 
         prompt = f"""
             You are a scheduling agent acting on behalf of {initiator_id}.
-            You are the INVITATOR, and the invitee ({invitee_id}) accepted your event.
+            You are the INVITATOR, and the invitee accepted your event.
 
             Context:
             - Persona: {persona}
             - Event: {event_name}
-            - Event window: {invite_info["start_time"]} to {invite_info["end_time"]}
-            - Your upcoming schedule (future_steps): {future_steps}
-            - Current task: [{current_task_time}] {current_task_desc}
+            - Event window: {start_time} to {end_time}
+            - tasks to be replaced: {window_steps}.
 
-            - You must adjust `future_steps` to include the event and adapt surrounding actions.
-            - Identify the step whose time exactly matches {invite_info["start_time"]}.
-            - The event should be ended at {invite_info["end_time"]}.
-            - You may modify:
-            - Up to {action_window} steps BEFORE event_start, and
-            - Up to {action_window} steps AFTER event_start,
-            - plus the step at event_start itself.
-            - This means you can adjust at most:
-            - {action_window} steps before + 1 event step + {action_window} steps after.
-            - You may choose to modify fewer steps than this maximum, but NEVER more.
+            - Replace steps that matches the start time and end time, and tasks within.
+            - Maintain the exact original order of the steps. You may rewrite the content of the steps in the selected window, but you must not reorder any steps.
+            - Transitions should be appeared at the starting and ending time slot of the modified window, and they must logically connect the event to the rest of the schedule.
 
             Constraints on modified steps:
             - Do NOT create or remove time slots; only rewrite the content of existing steps within the allowed window.
-            - Keep all times at 30-minute intervals and in correct 24-hour HH:MM format.
-            - Ensure the full day still covers every 30-minute slot from 06:00 to 22:00.
+            - Only rewrite the content of the steps within the selected inclusive window.
+            - All times must remain in 30-minute intervals in correct 24-hour HH:MM format.
             - Maintain a simple, grounded tone (not poetic or overly formal) with 15-20 words per action.
             - A specific area or object in each action (e.g., "at the herb garden", "in the weaving hut").
             - Provide transition actions that logically connect the event to the rest of the schedule.
-            - Respect any existing activity descriptions and time ranges.
-            For example, if the original description for 08:00-10:00 is: "Gathered herbs and fallen branches in the woods from 08:00 to 10:00.",
-            then only propose tasks related to gathering herbs and fallen branches in the woods during that period.
 
             Output format (STRICT)
-            - Always output a single JSON object with this exact structure, and nothing else.
-            - For example, if the event is at 18:00 and you decide to change tasks within the +/- {action_window} window:        
-            - The example output would be:
-            {{
-            "state": "ACCEPT",
-            "steps": "15) 17:00: Action 1\n16) 17:30: Action 2\n17) 18:00: Action 3",
-            }}
+            - Output a single JSON object with the exact structure ONLY.
+            - Do NOT output any lists, bullet points, numbered items, explanations, reasoning or statement.
+            - For example, if the event starts at 18:00 and ends at 19:00. The example output would be:
+            {{"steps": "15) 18:00: Action 1\n16) 18:30: Action 2\n17) 19:00: Action 3"}}
         """
 
         response = commitment_llm.invoke(prompt).content.strip()
         if response.startswith("```"):
             response = response.strip("`").strip("json").strip()
 
-        decision_data = json.loads(response)
-        steps_text = decision_data.get("steps")
-        if not isinstance(steps_text, str) or not steps_text.strip():
-            return {"state": "DECLINE", "steps": None}
+        try:
+            decision_data = json.loads(response, strict=False)
+        except json.JSONDecodeError as e:
+            print(f"[COMMITMENT] Failed to parse initiator JSON: {e}")
+            return
 
-        return {"state": "ACCEPT", "steps": steps_text}
+        new_step = decision_data.get("steps")
+        if not isinstance(new_step, str) or not new_step.strip():
+            return
 
-def _commitment_worker() -> None:
+        self.tasks_replan(initiator_id, new_step, steps)
+
+    def tasks_replan(self, agent_id: str, new_steps: str, steps: List[Step]) -> bool:
+        new_steps_section = parse_plan(new_steps)
+        if not new_steps_section:
+            print(f"[REPLAN] No valid replacement steps parsed for {agent_id}.")
+            return False
+
+        new_steps_map = {time_str: action for time_str, action in new_steps_section}
+        updated_full_steps = []
+        for time_str, action in steps:
+            if time_str in new_steps_map:
+                updated_full_steps.append((time_str, new_steps_map[time_str]))
+            else:
+                updated_full_steps.append((time_str, action))
+
+        new_desc = "\n".join([
+            f"{i+1}) {time_str}: {action}" 
+            for i, (time_str, action) in enumerate(updated_full_steps)
+        ])
+
+        _, original_emojis = get_plan(agent_id)
+        if not isinstance(original_emojis, list):
+            original_emojis = []
+
+        success = modify_plan(agent_id, description=new_desc, new_emojis=original_emojis)
+        
+        if success:
+            print(f"[REPLAN] Successfully updated plan for {agent_id} with new commitment.")
+            return True
+
+        print(f"[REPLAN] Failed to update plan for {agent_id}.")
+        return False
+    
+def _commitment_worker():
     commitment_manager = CommitmentManager()
     while True:
-        dialogue_lines, agent_executions, request_key, current_time = commitment_queue.get()
         try:
-            commitment_manager.check_commitment(dialogue_lines, agent_executions, current_time)
+            payload = commitment_queue.get(timeout=0.5)
+        except queue.Empty:
+            continue
+
+        dialogue_lines, agent_executions, request_key, current_time = payload
+
+        try:
+            future = _commitment_executor.submit(
+                commitment_manager.check_commitment,
+                dialogue_lines,
+                agent_executions,
+                current_time
+            )
+            future.result(timeout=30)
+            #commitment_manager.check_commitment(dialogue_lines, agent_executions, current_time)
         except Exception as e:
             print(f"[COMMITMENT] Worker error: {e}\n{traceback.format_exc()}")
-        finally:
-            with pending_lock:
-                pending_commitment_keys.discard(request_key)
 
-threading.Thread(target=_commitment_worker, daemon=True, name="CommitmentWorker").start()
+_commitment_thread = threading.Thread(target=_commitment_worker, daemon=True, name="CommitmentWorker")
+_commitment_thread.start()
 
 def main():
     commitment_manager = CommitmentManager()
-    # --- TEST 1: replan_steps replacement and filtering ---
-    original_steps = [("09:00", "Old Work"), ("09:30", "Stay Put"), ("10:00", "Eat")]
-    original_emojis = ["??", "??", "??"]
     
-    new_steps = [("09:30", "Meet Friend")]
-    new_emoj = ["??"]
+    # --- TEST 1: tasks_replan replacement ---
+    print("--- Test: tasks_replan Replacement ---")
+    agent_id = "Warwicke"
+    steps = [("09:00", "Old Work"), ("09:30", "Stay Put"), ("10:00", "Eat")]
+    new_steps = "1) 09:30: Meet Friend at the Plaza\n"
     
-    updated_steps, updated_emojis = commitment_manager.replan_steps(
-        original_steps, 
-        original_emojis, 
-        new_steps, 
-        new_emoj, 
-        current_step_idx=1
-    )
+    data = {} 
     
-    print("--- Test: replan_steps Replacement ---")
-    print(f"Original: {original_steps[1]} -> {original_emojis[1]}")
-    print(f"Updated:  {updated_steps[0]} -> {updated_emojis[0]}") 
-    print(f"Full Result Steps:  {updated_steps}")
-    print(f"Full Result Emojis: {updated_emojis}")
+    try:
+        success = commitment_manager.tasks_replan(
+            agent_id=agent_id,
+            new_steps=new_steps,
+            steps=steps
+        )
+        print(f"Replan success: {success}")
+    except Exception as e:
+        print(f"tasks_replan failed: {e}")
 
     # --- TEST 2: check_commitment ---
+    print("\n--- Test: check_commitment ---")
     agent_executions = {
-        "id": "Warwicke",
         "Warwicke": {
-            "persona": "A helpful villager",
-            "pending_commitments": []
+            "persona": "A helpful villager who loves social gatherings",
+            "steps": [("17:30", "Prepare dinner"), ("18:00", "Eat alone"), ("18:30", "Read book"), ("19:00", "Read book"), ("19:30", "Read book"), ("20:00", "Read book")]
+        },
+        "Jimmy": {
+            "persona": "A friendly neighbor",
+            "steps": [("17:30", "Walk dog"), ("18:00", "Eat alone"), ("18:30", "Walk dog"), ("19:00", "Walk dog"), ("19:30", "Walk dog"), ("20:00", "Walk dog")]
         }
     }
     dialogue = ["Jimmy: Hey Warwicke, want to meet at the tavern at 18:00?"]
-    sim_time = (1, 12, 30, 0) # Day 1, 12:30
+    sim_time = "12:00"
 
-    print("\n--- Test: check_commitment ---")
     try:
         commitment_manager.check_commitment(dialogue_lines=dialogue, agent_executions=agent_executions, sim_time=sim_time)
-        pending = agent_executions["Warwicke"]["pending_commitments"]
-        print(f"Pending commitments for Warwicke: {pending}")
     except Exception as e:
         print(f"check_commitment failed: {e}")
-
-    # --- TEST 3: decide_commitment ---
-    if agent_executions["Warwicke"]["pending_commitments"]:
-        invite = agent_executions["Warwicke"]["pending_commitments"][0]
-        future_steps = [("17:30", "Work"), ("18:00", "Dinner"), ("18:30", "Sleep")]
-        print("\n--- Test: decide_commitment ---")
-        try:
-            decision = commitment_manager.decide_commitment("A social villager", invite, future_steps, 0)
-            print(f"Decision: {decision["state"]}")
-            if decision["steps"]:
-                print(f"New Plan Section:\n{decision["steps"]}")
-        except Exception as e:
-            print(f"decide_commitment failed: {e}")
 
 if __name__ == "__main__":
     main()

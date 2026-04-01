@@ -33,6 +33,20 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
                 simAgent.showDialogue(cmd.content, cmd.display_time);
                 break;
 
+            case "show_dialogue":
+                simAgent.showDialogue(cmd.content, cmd.display_time);
+                break;
+
+            case "set_chatting":
+                bool isChatting = (cmd.content == "start");
+                string partner = isChatting ? cmd.partner : null;
+                simAgent.SetConversationState(isChatting, partner);
+                break;
+
+            case "show_dialogue":
+                simAgent.showDialogue(cmd.content, cmd.display_time);
+                break;
+
             case "interact":
                 simAgent.Interact(cmd.method, cmd.target, cmd.color);
                 break;
@@ -44,10 +58,6 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
                     List<string> linesList = new List<string>(lines);
                     DialogueManager.Instance.UpdateDialogue(cmd.agent_ids, linesList);
                 }
-                break;
-
-            case "show_dialogue":
-                simAgent.showDialogue(cmd.content, cmd.display_time);
                 break;
 
             case "set_chatting":

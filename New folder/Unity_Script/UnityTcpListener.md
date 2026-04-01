@@ -37,9 +37,6 @@ public class UnityTcpListener : MonoBehaviour
     private readonly Queue<MovementCommand> queue = new Queue<MovementCommand>();
     private readonly object queueLock = new object();
     private bool running = false;
-
-    // Track persistent client connections (one per agent)
-    private readonly List<Thread> clientThreads = new List<Thread>();
     private int activeClients = 0;
     private readonly object clientCountLock = new object();
 
@@ -132,7 +129,6 @@ public class UnityTcpListener : MonoBehaviour
                 lock (clientCountLock)
                 {
                     activeClients++;
-                    clientThreads.Add(clientThread);
                 }
 
                 clientThread.Start();
@@ -180,6 +176,7 @@ public class UnityTcpListener : MonoBehaviour
             using (var stream = client.GetStream())
             {
                 byte[] buffer = new byte[8192];
+                StringBuilder receiveBuffer = new StringBuilder();
 
                 // Keep reading commands from this agent's persistent connection
                 while (running && client.Connected)
@@ -196,16 +193,28 @@ public class UnityTcpListener : MonoBehaviour
                             break;
                         }
 
-                        string content = Encoding.UTF8.GetString(buffer, 0, bytesRead).Trim();
+                        // TCP is a stream: one Read can contain partial or multiple newline-delimited JSON commands.
+                        receiveBuffer.Append(Encoding.UTF8.GetString(buffer, 0, bytesRead));
 
-                        // Process each command line
-                        foreach (var line in content.Split('\n'))
+                        // Process complete lines only, keep any partial tail for the next read.
+                        while (true)
                         {
+                            int newlineIndex = receiveBuffer.ToString().IndexOf('\n');
+                            if (newlineIndex < 0) break;
+
+                            string line = receiveBuffer.ToString(0, newlineIndex).TrimEnd('\r');
+                            receiveBuffer.Remove(0, newlineIndex + 1);
                             if (string.IsNullOrWhiteSpace(line)) continue;
 
                             try
                             {
                                 var cmd = JsonUtility.FromJson<MovementCommand>(line);
+                                if (cmd == null || string.IsNullOrEmpty(cmd.action))
+                                {
+                                    Debug.LogWarning($"[TCP-PERSIST] Ignored malformed command from {detectedAgent}");
+                                    continue;
+                                }
+
                                 if (detectedAgent == "Unknown" && !string.IsNullOrEmpty(cmd.agent))
                                 {
                                     detectedAgent = cmd.agent;
@@ -213,15 +222,17 @@ public class UnityTcpListener : MonoBehaviour
                                     Debug.Log($"[TCP-PERSIST] Connection {clientId} identified as agent: {detectedAgent}");
                                 }
 
+                                if (string.IsNullOrEmpty(cmd.agent))
+                                {
+                                    Debug.LogWarning($"[TCP-PERSIST] Ignored command without agent from {detectedAgent}");
+                                    continue;
+                                }
+
                                 // Queue command for processing on Unity main thread
                                 lock (queueLock)
                                 {
                                     queue.Enqueue(cmd);
                                 }
-
-                                // Send acknowledgment for each command
-                                //byte[] ack = Encoding.UTF8.GetBytes("{\"state\":\"ok\"}\n");
-                                //stream.Write(ack, 0, ack.Length);
                             }
                             catch (Exception ex)
                             {
@@ -244,6 +255,17 @@ public class UnityTcpListener : MonoBehaviour
         }
         finally
         {
+            if (!string.IsNullOrEmpty(detectedAgent) && detectedAgent != "Unknown")
+            {
+                lock (streamLock)
+                {
+                    if (agentStreams.ContainsKey(detectedAgent))
+                    {
+                        agentStreams.Remove(detectedAgent);
+                    }
+                }
+            }
+
             lock (clientCountLock)
             {
                 activeClients--;
