@@ -10,10 +10,14 @@ public class HoverColorController2D : MonoBehaviour
     private Color hoverColor = new Color32(169, 169, 169, 255);
 
     private Dictionary<Transform, Color> originalColors = new Dictionary<Transform, Color>();
-    private Transform currentHover = null;
+    private SpriteRenderer lastHoverRenderer;
+    private GameObject hoverObject;
+    private Color originalColor = Color.white;
 
     public CinemachineVirtualCamera virtualCamera;
     public Transform player;
+
+    public GameObject InteractIndicator;
 
     void Start()
     {
@@ -32,7 +36,6 @@ public class HoverColorController2D : MonoBehaviour
     void Update()
     {
         DetectHover();
-        ApplyColorChange();
         DetectClick();
     }
 
@@ -40,53 +43,83 @@ public class HoverColorController2D : MonoBehaviour
     {
         Vector3 mouseWorld = Camera.main.ScreenToWorldPoint(Input.mousePosition);
         Vector2 mousePos = new Vector2(mouseWorld.x, mouseWorld.y);
-
         RaycastHit2D hit = Physics2D.Raycast(mousePos, Vector2.zero);
 
         if (hit.collider != null && hit.collider.CompareTag(targetTag))
         {
-            currentHover = hit.collider.transform;
+            hoverObject = hit.collider.transform.gameObject;
+            SpriteRenderer sr = hoverObject.GetComponent<SpriteRenderer>();
+
+            if (lastHoverRenderer != null && lastHoverRenderer != sr)
+                lastHoverRenderer.color = originalColor;
+
+            lastHoverRenderer = sr;
+            sr.color = hoverColor;
         }
         else
         {
-            currentHover = null;
+            hoverObject = null;
+            if (lastHoverRenderer != null)
+            {
+                lastHoverRenderer.color = originalColor;
+                lastHoverRenderer = null;
+            }
         }
     }
 
+    bool interactMode = false;
+    GameObject prefClickObject = null;
+
     void DetectClick()
     {
-        if (virtualCamera == null)
-            return;
-
-        if (Input.GetMouseButtonDown(0) && currentHover != null)
+        if (Input.GetKeyDown(KeyCode.I))
         {
-            virtualCamera.Follow = currentHover;
+            interactMode = !interactMode;
+            InteractIndicator.SetActive(interactMode);
+            prefClickObject = null;
+            return;
+        }
+
+        if (interactMode)
+        {
+            //InteractIndicator.SetActive(false);
+            if (Input.GetMouseButtonDown(0) && hoverObject != null)
+            {
+                bool isInteractionActive = InteractionManager.Instance != null && InteractionManager.Instance.InteractionPanel.activeSelf;
+                if (prefClickObject != null && hoverObject == prefClickObject && isInteractionActive)
+                {
+                    Debug.Log("You are clicking the same agent.");
+                    return;
+                }
+                else
+                {
+                    checkInteraction(hoverObject);
+                    prefClickObject = hoverObject;
+                    return;
+                }
+            }
+        }
+
+        if (Input.GetMouseButtonDown(0) && hoverObject != null)
+        {
+            virtualCamera.Follow = hoverObject.transform;
         }
 
         if (Input.GetMouseButtonDown(1))
         {
             virtualCamera.Follow = player;
+            hoverObject = null;
         }
     }
 
-    void ApplyColorChange()
+    void checkInteraction(GameObject agent)
     {
-        foreach (var pair in originalColors)
+        if (agent == null)
+            return;
+
+        if (InteractionManager.Instance != null)
         {
-            Transform obj = pair.Key;
-            SpriteRenderer sr = obj.GetComponentInChildren<SpriteRenderer>();
-
-            if (sr == null)
-                continue;
-
-            if (obj == currentHover)
-            {
-                sr.color = hoverColor;
-            }
-            else
-            {
-                sr.color = pair.Value;
-            }
+            InteractionManager.Instance.StartInteraction(agent.transform.parent.name);
         }
     }
 }

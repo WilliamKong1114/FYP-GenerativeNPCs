@@ -60,6 +60,13 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
                 }
                 break;
 
+            case "user_chat_response":
+                if (InteractionManager.Instance != null)
+                {
+                    InteractionManager.Instance.HandleBackendResponse(cmd.content, cmd.request_id);
+                }
+                break;
+
             case "set_chatting":
                 bool isChatting = (cmd.content == "start");
                 string partner = isChatting ? cmd.partner : null;

@@ -124,6 +124,9 @@ def user_chat_start():
     starter_question_id = data.get("starter_question_id")
     starter_question_text = data.get("starter_question_text")
 
+    if not agent_id:
+        return jsonify({"status": "error", "message": "agent_id is required"}), 400
+
     try:
         payload = user_chat_manager.start_conversation(
             agent_id=agent_id,

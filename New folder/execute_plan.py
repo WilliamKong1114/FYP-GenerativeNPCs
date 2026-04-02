@@ -24,6 +24,7 @@ from planner import generate_plans
 from conversation_manager import ConversationManager
 from preference_manager import PreferenceManager
 from commitment_manager import CommitmentManager
+from Interaction_manager import InteractManager
 from chroma_client import get_client
 chroma_client = get_client(path="./chroma_db")
 
@@ -305,6 +306,7 @@ def main():
     shutdown = False    
     
     client = UnityClient()
+    interaction_manager = InteractManager()
     #area_state_manager.start_listener(5006)
     conv_manager = ConversationManager(
         graph=get_graph(),
@@ -350,11 +352,9 @@ def main():
         simulation_active = True
         while not shutdown:
             
-            """             
-            for aid, data in agent_executions.items():
-            if data.get("is_chatting"):
-                client.check_for_incoming(aid, agent_executions)
-            """
+            for aid in agent_executions.keys():
+                client.check_for_incoming(aid, agent_executions, interaction_manager=interaction_manager)
+
             if clock.is_new_day() and clock.get_sim_days() > 0:
                 simulation_active = False
 

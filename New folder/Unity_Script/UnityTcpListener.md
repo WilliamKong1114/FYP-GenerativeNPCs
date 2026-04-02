@@ -13,6 +13,13 @@ public class MovementCommand
 {
     public string action;      // "move_to", "interact", "show_dialogue", "stop"
     public string agent;       // "Samson", "Jimmy", etc. (REQUIRED for multi-agent)
+    public string request_id;
+    public string target_agent;
+    public string session_id;
+    public string option_id;
+    public string user_text;
+    public string starter_question_id;
+    public string starter_question_text;
     public string partner;
     public string target;      // Target object name
     public string content;     // Dialogue content or description

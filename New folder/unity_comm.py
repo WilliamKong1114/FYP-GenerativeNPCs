@@ -9,11 +9,8 @@ class UnityClient:
         self.host = host
         self.port = port
         self.timeout = timeout
-        #self.default_agent_id = default_agent_id
         self._connections = {}
         self._connection_lock = threading.Lock()
-        #self._state_lock = threading.Lock()
-        #self._inflight_requests = set()
         self.dialogue_cache = {}
 
     @staticmethod
@@ -53,7 +50,7 @@ class UnityClient:
         for attempt in range(2 if retry else 1):
             sock = self._get_connection(agent_id)
             if sock is None:
-                raise ConnectionError(f"No connection for {agent_id}")
+                return ConnectionError(f"No connection for {agent_id}")
 
             try:
                 sock.settimeout(self.timeout)
@@ -141,10 +138,60 @@ class UnityClient:
         kwargs["agent_ids"] = agent_ids
         self.build_and_send("update_dialogue", agent_id=agent_id, **kwargs)
 
-    def handle_incoming_command(self, command_dict, agent_executions):
-        action = command_dict.get("action")
+    def _agent_availability(self, agent_id: str, agent_executions: dict):
+        data = agent_executions.get(agent_id)
+        if not data:
+            return {
+                "status": "error",
+                "agent_id": agent_id,
+                "available": False,
+                #"is_busy": False,
+                "is_chatting": False,
+                "is_reflecting": False,
+                "message": "Unknown agent.",
+            }
+
+        #active_task = data.get("active_task")
+        #is_task_running = bool(active_task and not active_task.done())
+        #is_cooldown = time.time() < float(data.get("is_busy_until", 0) or 0)
+        #is_busy = is_task_running or is_cooldown
+        is_chatting = bool(data.get("is_chatting", False))
+        is_reflecting = bool(data.get("is_reflecting", False))
+        available = not (is_chatting or is_reflecting)
+
+        if available:
+            message = "Agent is available for interaction."
+        elif is_chatting:
+            message = "Agent is currently in conversation."
+        elif is_reflecting:
+            message = "Agent is currently reflecting."
+
+        return {
+            "status": "success",
+            "agent_id": agent_id,
+            "available": available,
+            #"is_busy": is_busy,
+            "is_chatting": is_chatting,
+            "is_reflecting": is_reflecting,
+            "message": message,
+        }
+
+    def send_response(self, agent_id: str, request_id: str, payload: dict):
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        self.build_and_send(
+            "user_chat",
+            agent_id=agent_id,
+            content=payload_json,
+            request_id=request_id,
+        )
+
+    def handle_incoming_command(self, command_dict, agent_executions, interaction_manager=None):
+        action = str(command_dict.get("action", "")).lower()
         agent_id = command_dict.get("agent")
         partner_id = command_dict.get("partner")
+        request_id = command_dict.get("request_id")
+        current_area = agent_executions.get("current_area")
+        current_target = agent_executions.get("current_target")
                 
         if action == "conversation_finished":
             if agent_id and agent_id in agent_executions:
@@ -155,6 +202,52 @@ class UnityClient:
                 agent_executions[partner_id]["is_chatting"] = False
                 agent_executions[partner_id]["is_busy_until"] = time.time() + 1
             return
+
+        if action != "user_chat":
+            return
+
+        #target_agent = command_dict.get("target_agent") or agent_id
+        session_id = command_dict.get("session_id")
+        user_text = str(command_dict.get("user_text")).strip()
+
+        if not session_id:
+            availability = self._agent_availability(agent_id, agent_executions)
+
+            if availability.get("status") != "success" or not availability.get("available", False):
+                self.send_response(agent_id=agent_id, request_id=request_id, payload=availability)
+                return
+
+            try:
+                payload = interaction_manager.start_conversation(agent_id, question=user_text, current_area=current_area, current_target=current_target)
+                if agent_id in agent_executions:
+                    agent_executions[agent_id]["is_chatting"] = True
+                    agent_executions[agent_id]["is_busy_until"] = time.time() + 600
+            except ValueError as e:
+                payload = {
+                    "status": "error",
+                    "agent_id": agent_id,
+                    "message": str(e),
+                }
+
+            self.send_response(agent_id=agent_id, request_id=request_id, payload=payload)
+            return
+        
+        try:
+            payload = interaction_manager.continue_conversation(session_id=session_id, user_text=user_text, current_area=current_area, current_target=current_target)
+            session_agent = payload.get("agent_id")
+            if session_agent in agent_executions:
+                ended = bool(payload.get("ended", False))
+                agent_executions[session_agent]["is_chatting"] = not ended
+                agent_executions[session_agent]["is_busy_until"] = time.time() + (1 if ended else 600)
+        except ValueError as e:
+            payload = {
+                "status": "error",
+                "agent_id": agent_id,
+                "message": str(e),
+            }
+
+        self.send_response(agent_id=agent_id, request_id=request_id, payload=payload)
+        return
 
     def receive_msg(self, agent_id: str, timeout: float = 5.0):
         sock = self._get_connection(agent_id)
@@ -169,7 +262,6 @@ class UnityClient:
 
             return [msg.decode('utf-8').strip() for msg in data.split(b"\n") if msg.strip()]
         except (socket.timeout):
-            print(f"[S] No message received.")
             return
         except Exception as e:
             print(f"[S] Error receiving message for {agent_id}: {e}")
@@ -198,16 +290,16 @@ class UnityClient:
                 return True
         return False 
 
-    """ 
-    def check_for_incoming(self, agent_id, agent_executions): 
-    message = self.receive_msg(agent_id, timeout=0.001)
-    print(f"[TCP] Received message for {agent_id}: {message}")
-    for msg in message:
-        try:
-            if msg.startswith("{"):
-                cmd = json.loads(msg)
-                self.handle_incoming_command(cmd, agent_executions)
-        except Exception as e:
-            print(f"[TCP] Failed to handle incoming command for {agent_id}: {e}")
-            continue
-    """
+    def check_for_incoming(self, agent_id: str, agent_executions: dict, interaction_manager=None):
+        messages = self.receive_msg(agent_id, timeout=0.001)
+        if not messages:
+            return
+
+        for msg in messages:
+            try:
+                if msg.startswith("{"):
+                    cmd = json.loads(msg)
+                    self.handle_incoming_command(cmd, agent_executions, interaction_manager=interaction_manager)
+            except Exception as e:
+                print(f"[TCP] Failed to handle incoming command for {agent_id}: {e}")
+                continue
