@@ -157,7 +157,7 @@ def find_target(action: str, agent_id: str):
     target_name = tree.get_location(target_node)
     #path_str = ": ".join([n.name for n in path_nodes])
     #action_desc = f"{action} @ {path_str}"
-    
+        
     if target_node.node_type == "object":
         obj_name = target_node.name
         area_name = target_node.parent.name

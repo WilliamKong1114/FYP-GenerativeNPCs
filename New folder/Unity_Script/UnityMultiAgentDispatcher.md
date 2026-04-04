@@ -57,6 +57,7 @@ public class UnityMultiAgentDispatcher : MonoBehaviour
                     string[] lines = cmd.content.Split(new[] {'\n'}, System.StringSplitOptions.RemoveEmptyEntries);
                     List<string> linesList = new List<string>(lines);
                     DialogueManager.Instance.UpdateDialogue(cmd.agent_ids, linesList);
+                    DialogueManager.Instance.OnDataReceived();
                 }
                 break;
 

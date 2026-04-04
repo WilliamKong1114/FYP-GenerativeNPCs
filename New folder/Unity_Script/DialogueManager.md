@@ -64,6 +64,11 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
         }
     }
 
+    public void OnDataReceived()
+    {
+        isWaitingForData = false;
+    }
+
     void UpdateLoadingText()
     {
         string dots = new string('.', dotCount);
@@ -104,6 +109,20 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
     public bool HasActiveSession()
     {
         return isSessionActive;
+    }
+
+    public bool HasConversationDataForPair(string agent1, string agent2)
+    {
+        if (string.IsNullOrEmpty(agent1) || string.IsNullOrEmpty(agent2))
+        {
+            return false;
+        }
+
+        return convList.Any(c => c.agent_ids != null
+            && c.lines != null
+            && c.lines.Count > 0
+            && c.agent_ids.Contains(agent1)
+            && c.agent_ids.Contains(agent2));
     }
 
     public void ShowDialoguePanel()
@@ -151,25 +170,8 @@ public class DialogueManager : MonoBehaviour, IPointerClickHandler
                 DisplayLine();
             }
         }
-        else if (!isCurrentSession)
-        {
-            // Conversation finished for a pair the user hasn't opened — auto-dismiss the floating button
-            string agent1 = agent_ids[0];
-            string agent2 = agent_ids[1];
-
-            SimAgent sa = GameObject.Find(agent1)?.GetComponent<SimAgent>();
-            SimAgent pa = GameObject.Find(agent2)?.GetComponent<SimAgent>();
-            sa?.SetConversationState(false);
-            pa?.SetConversationState(false);
-
-            MovementCommand cmd = new MovementCommand { action = "conversation_finished" };
-            cmd.agent = agent1;
-            UnityTcpListener.SendToAgent(agent1, JsonUtility.ToJson(cmd));
-            cmd.agent = agent2;
-            UnityTcpListener.SendToAgent(agent2, JsonUtility.ToJson(cmd));
-
-            convList.RemoveAll(c => c.agent_ids.Contains(agent1) || c.agent_ids.Contains(agent2));
-        }
+        // For unopened sessions, keep the record cached so the indicator can remain clickable
+        // until ConvVisualizer timeout logic dismisses it.
     }
 
     public void OnPointerClick(PointerEventData eventData)

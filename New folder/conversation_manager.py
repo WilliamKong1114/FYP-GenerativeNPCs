@@ -134,7 +134,7 @@ class ConversationManager:
         for turn in self.generate_dialogue(area, group, context):
             speaker = turn["speaker"]
             text = turn["text"]
-            #print(f"\n[D] {speaker}: {text}")
+            print(f"\n[D] {speaker}: {text}")
 
             if (self.debug_mode):
                 debug_convo.append(f'{speaker}: "{text}"')

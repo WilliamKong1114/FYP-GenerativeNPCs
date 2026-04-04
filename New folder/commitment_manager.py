@@ -118,8 +118,8 @@ class CommitmentManager:
 
         JSON Structure if invitation is found:
         {{
-            "initiator (agent name)": "...",
-            "invitee" (agent name): "...",
+            "initiator": "...",
+            "invitee": "...",
             "event_name": "...",
             "start_time": "HH:MM",
             "end_time": "HH:MM"
