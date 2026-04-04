@@ -1,0 +1,32 @@
+# Python virtual environment and local secrets
+/.venv/
+/.env
+
+# Python cache and test artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# IDE/editor settings
+/.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Runtime/generated project data
+/archive/
+/Database/*.db
+/Preference_List/*.db
+/World_Environment/areas/*.db
+/World_Environment/agent_state.json
+/Secure/request_counter.json
+/chroma_db/
+
+# Optional local-only workspace files
+*.log

@@ -1,0 +1,270 @@
+{
+  "name": "World",
+  "type": "area",
+  "children": [
+    {
+      "name": "House_Wilton",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Wilton",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Wilton",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Wilton",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Lona",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Heath",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Storage_Wilton",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Wilton",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "House_Eldrede",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Eldrede",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Eldrede",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Eldrede",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Eldrede",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Eldrede",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "House_Warwicke",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Warwicke",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Warwicke",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Warwicke",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Warwicke",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Warwicke",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "Church",
+      "type": "area",
+      "children": [
+        {
+          "name": "Church",
+          "type": "area",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "Blacksmith",
+      "type": "area",
+      "children": [
+        {
+          "name": "Table_Blacksmith",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "ShopArea_Blacksmith",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Storage_Blacksmith",
+          "type": "object",
+          "state": "empty"
+        } 
+      ]
+    },
+        {
+      "name": "Brewery",
+      "type": "area",
+      "children": [
+        {
+          "name": "Table_Brewery",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "ShopArea_Brewery",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Storage_Brewery",
+          "type": "object",
+          "state": "empty"
+        } 
+      ]
+    },
+    {
+      "name": "Bakery",
+      "type": "area",
+      "children": [
+        {
+          "name": "Table_Bakery",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "ShopArea_Bakery",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Storage_Bakery",
+          "type": "object",
+          "state": "empty"
+        } 
+      ]
+    },
+    {
+      "name": "Carpenter",
+      "type": "area",
+      "children": [
+        {
+          "name": "Table_Carpenter",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "ShopArea_Carpenter",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Storage_Carpenter",
+          "type": "object",
+          "state": "empty"
+        } 
+      ]
+    },
+    {
+      "name": "Tavern",
+      "type": "area",
+      "children": [
+        {
+          "name": "Table_Tavern",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "WaitZone_Tavern",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Storage_Tavern",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Chair1_Tavern",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Chair2_Tavern",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Chair3_Tavern",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Chair4_Tavern",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "Well",
+      "type": "area",
+      "children": [
+        {
+          "name": "Well",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "River",
+      "type": "area",
+      "children": [
+        {
+          "name": "River",
+          "type": "area",
+          "state": "empty"
+        }
+      ]
+    }
+  ]
+}
+
+
+

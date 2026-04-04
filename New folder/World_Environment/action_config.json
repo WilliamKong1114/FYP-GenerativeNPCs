@@ -1,0 +1,34 @@
+[
+    {
+        "verbs": ["bed", "sleep", "nap", "rest"],
+        "targets": ["bed"]
+    },
+    {
+        "verbs": ["house", "home"],
+        "targets": ["house"]
+    },
+    {
+        "verbs": ["eat", "dine", "study", "write letter", "write journal", "study", "read", "table"],
+        "targets": ["table"]
+    },
+    {
+        "verbs": ["cook", "bake", "roast", "warm", "heat", "hearth"],
+        "targets": ["hearth"]
+    },
+    {
+        "verbs": ["plant", "weed", "harvest", "till", "farm", "dig", "garden", "water plants", "water crops", "water vegetables", "herb garden"],
+        "targets": ["garden"]
+    },
+    {
+        "verbs": ["wash", "clean", "rinse", "bathe", "fetch water", "draw water", "fill jug", "fill bucket", "collect water", "river"],
+        "targets": ["river"]
+    },
+    {
+        "verbs": ["store", "retrieve", "organize", "stash", "storage"],
+        "targets": ["storage"]
+    },
+    {
+        "verbs": ["repair", "fix", "sharpen", "polish tools", "carve", "shape wood", "sand wood", "build", "craft", "assemble"],
+        "targets": ["Table_Workshop"]
+    }
+]
