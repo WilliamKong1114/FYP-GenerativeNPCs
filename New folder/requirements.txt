@@ -1,9 +1,0 @@
-chromadb
-python-dotenv
-langchain
-langchain-core
-langchain-azure-ai
-azure-ai-inference
-streamlit
-pandas
-pytest
