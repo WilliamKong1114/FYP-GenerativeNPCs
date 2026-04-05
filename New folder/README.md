@@ -1,77 +1,64 @@
-# Dynamic Interactive System with AI-driven NPCs
+# AI-Driven NPC Simulation (Unity + Python)
 
-Short project README for local setup and quick reference.
+This repository contains the Python side of a multi-agent simulation. LLM-driven villagers follow daily plans, move around within the environment, record observations and memories, and sometimes start conversations with each other or with the player.
 
-## Description
+Different modules are implemented for agents to corredinate with. There are a total of 6 agents in the current setup, and 7 modules including: Planning, Routing, Preference, Conversation, Commitment, Observation and Reflection. Each module collaborates with LLM models to achieve dynamic response optimization under different circumstances. The LLM models are accessed via the GitHub Models inference API.
 
-This repository contains an experimental system that composes an AI-driven conversational graph for NPCs (non-player characters) using ChromaDB for memory storage and GitHub Models (via `langchain-azure-ai`) as the LLM backend. The project includes:
+## Key components
 
-- A graph-based chatbot engine (`main.py`) which manages tools, memories, and streaming responses.
-- A small FastAPI wrapper (`api.py`) exposing a `/chat` endpoint for programmatic access.
-- A Streamlit utility (`view_chroma_streamlit.py`) for inspecting ChromaDB collections.
-- A `performance_test.py` script for benchmarking search approaches.
+- Main script: `execute_plan.py`
+- Unity TCP client: `unity_comm.py`
+- Environment state and clock: `World_Environment/`
+- Chroma vector database related: `chromaMemory_manager.py` & `chroma_db/`
+- SQLite databases related: `Database/`
+  - `plans.db` for storing generated plans
+  - `agent_memory.db` for storing observations, impressions, conversation logs, summaries and reflections
+  - `places.db` for visualizing the environment tree structure
+  - `preferences.db` for storing agent preferences
 
-## Quick Setup (Windows PowerShell)
+## Requirements
 
-1. Clone the repo and enter the folder:
+- Windows/macOS/Linux
+- Project build with Python 3.12 venv
+- A Unity scene
+- A GitHub Models token available as `GITHUB_TOKEN`
 
-```powershell
-git clone <repo-url>
-cd "New folder"
-```
+## Setup
 
-2. Create and activate a virtual environment:
+1. Create and activate a virtual environment
+   - Windows PowerShell
+     - `python -m venv .venv`
+     - `.\.venv\Scripts\Activate.ps1`
 
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
+2. Install Python dependencies
+   - `pip install -r requirements.txt`
 
-3. Install dependencies:
+3. Configure credentials
 
-```powershell
-pip install -r requirements.txt
-```
+   `Secure/llm_config.py` reads `GITHUB_TOKEN` from environment variables. Put it in `.env`.
+   Example `.env`: `GITHUB_TOKEN=...`
 
-4. Add secrets locally (do NOT commit them). Example: set Google service account env var in PowerShell for the session:
+## Running the simulation
 
-```powershell
-$env:GOOGLE_APPLICATION_CREDENTIALS = 'C:\path\to\finalyearproject-xxxx.json'
-```
+1. Start Unity first
+   The Python runtime connects to Unity at `127.0.0.1:5005`, so Unity should be listening on that port.
 
-Alternatively, copy `.env.example` to `.env` and populate the values.
+2. Run the main loop
+   - `python execute_plan.py`
 
-## Run
+If Unity is not running or the port is blocked, the Python process will fail when it tries to connect.
 
-- Run the interactive loop in `main.py` (simple REPL):
+## Configuring agents
 
-```powershell
-python main.py
-```
+Agent personas, tone guidance, and home locations live in `World_Environment/agent_state.json`.
+Typical fields per agent:
 
-- Run the FastAPI server (for programmatic access):
+- `persona`: background and personality description for the agent, used for LLM prompting
+- `tone`: relationship-based tone instructions
+- `home_area` and `home_node`: where the agent resets to
 
-```powershell
-# from repo root
-& "${env:USERPROFILE}\.venv\Scripts\python.exe" -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
-```
+## Data and persistence
 
-- Run the Streamlit DB viewer:
-
-```powershell
-& ".venv\Scripts\python.exe" -m streamlit run view_chroma_streamlit.py
-```
-
-## Environment variables (`.env`)
-
-Create a `.env` (copy from `.env.example`) and fill real values locally. Do NOT commit this file.
-
-## Helpful commands
-
-```powershell
-# Remove secrets from index (keeps local copy)
-git rm --cached finalyearproject-473307-5f81b95b0dbf.json
-git rm --cached finalyearproject-473307-a9217e681ea4.json
-git commit -m "Remove service account JSON from repo and add to .gitignore"
-git push
-```
+- Chroma database and SQLite databases are included in the repo. If you want to reset the data, clear the data correspondingly.
+- `chromaMemory_manager.py` can be used to clear specific collections.
+- use sql command to delete records from specific tables.

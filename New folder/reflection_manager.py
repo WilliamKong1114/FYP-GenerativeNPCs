@@ -111,39 +111,44 @@ def _generate_questions(agent_id: str) -> list[str]:
         return []
 
 def _retrieve_memories(agent_id: str, questions: list[str], clock=None) -> list[dict]:
-    col = chroma.get_or_create_collection("memories")
+    cols = [
+        chroma.get_or_create_collection("summary"),
+        chroma.get_or_create_collection("observation"),
+        chroma.get_or_create_collection("reflection"),
+    ]
     current_hours = clock.get_sim_hour() if clock else 0
     scored: dict[str, tuple[float, str]] = {}
 
     for question in questions:
-        try:
-            results = col.query(
-                query_texts=[question],
-                n_results=MEMORIES_PER_QUESTION,
-                where={"user_id": agent_id},
-            )
-            ids = results.get("ids", [[]])[0]
-            documents = results.get("documents", [[]])[0]
-            metadatas = results.get("metadatas", [[]])[0]
-            distances = results.get("distances", [[]])[0]
+        for col in cols:
+            try:
+                results = col.query(
+                    query_texts=[question],
+                    n_results=MEMORIES_PER_QUESTION,
+                    where={"user_id": agent_id},
+                )
+                ids = results.get("ids", [[]])[0]
+                documents = results.get("documents", [[]])[0]
+                metadatas = results.get("metadatas", [[]])[0]
+                distances = results.get("distances", [[]])[0]
 
-            for doc_id, doc, meta, dist in zip(ids, documents, metadatas, distances):
-                if not doc:
-                    continue
+                for doc_id, doc, meta, dist in zip(ids, documents, metadatas, distances):
+                    if not doc:
+                        continue
 
-                relevance  = 1.0 / (1.0 + dist)
-                importance = meta.get("importance", 3) / 10.0
-                last_accessed = meta.get("modified_on", 0)
-                delta_t = max(0, current_hours - last_accessed)
-                recency = pow(0.99, delta_t)
+                    relevance  = 1.0 / (1.0 + dist)
+                    importance = meta.get("importance", 3) / 10.0
+                    last_accessed = meta.get("modified_on", 0)
+                    delta_t = max(0, current_hours - last_accessed)
+                    recency = pow(0.99, delta_t)
 
-                final_score = (0.5 * recency) + (0.3 * importance) + (0.2 * relevance)
+                    final_score = (0.5 * recency) + (0.3 * importance) + (0.2 * relevance)
 
-                if doc not in scored or final_score > scored[doc][0]:
-                    scored[doc] = (final_score, doc_id)
+                    if doc not in scored or final_score > scored[doc][0]:
+                        scored[doc] = (final_score, doc_id)
 
-        except Exception as e:
-            print(f"[REFLECT] Memory retrieval failed for '{question}': {e}")
+            except Exception as e:
+                print(f"[REFLECT] Memory retrieval failed for '{question}': {e}")
 
     return [
         {"text": doc, "id": chroma_id}

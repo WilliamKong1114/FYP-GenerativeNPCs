@@ -4,12 +4,12 @@ import uuid
 import json
 import threading
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from dotenv import load_dotenv
 import chromaMemory_manager
 
 from agent_memory import AgentMemoryManager
-from Secure.llm_config import conversation_llm
+from Secure.llm_config import dialogue_llm
 from World_Environment.simulation_clock import SimulationClock
 from commitment_manager import CommitmentManager
 
@@ -21,11 +21,12 @@ CONVERSATION_COOLDOWN = 200
 MIN_CONVERSATION_TURNS = 6
 MAX_TERNS = 10
 EXTRA_TURNS_PER_PARTICIPANT = 2
+LLM_TIMEOUT_SECONDS = 20
 
 class ConversationManager:
     def __init__(self, graph=None, clock: "SimulationClock"=None, debug_mode: bool = False, preference_manager=None):
         self.memory_manager = AgentMemoryManager()
-        self.llm = conversation_llm
+        self.llm = dialogue_llm
         self.clock = clock
         self.graph = graph
         self.debug_mode = debug_mode
@@ -33,6 +34,21 @@ class ConversationManager:
         self.db_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._pending_conversations: set[frozenset] = set()
+
+    def _invoke_timeout(self, fn, *args, timeout: float = LLM_TIMEOUT_SECONDS, label: str = "LLM"):
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(fn, *args)
+        try:
+            return future.result(timeout=timeout)
+        except TimeoutError:
+            future.cancel()
+            print(f"[CONV] {label} timed out after {timeout}s.")
+            return None
+        except Exception as e:
+            print(f"[CONV] {label} failed: {e}")
+            return None
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def check_conversation(self, area: str, group: list, agent_executions: dict, client=None, session_id: str = None) -> bool:
         agent_ids = [a["id"] for a in group]
@@ -108,7 +124,11 @@ class ConversationManager:
         
         inputs = {"messages": [{"role": "user", "content": triggering_msg}]}
         response_content = ""
-        result = self.graph.invoke(inputs, config)       #trigger agent_node and tools
+
+        result = self._invoke_timeout(self.graph.invoke, inputs, config, label="Dialogue generation")
+        if result is None:
+            return ""
+
         messages = result.get("messages", [])
         if messages:
             response_content = messages[-1].content
@@ -201,7 +221,9 @@ class ConversationManager:
                 "]}"
         }
         user_msg = {"role": "user", "content": f"{raw_log}"}
-        resp = self.llm.invoke([system, user_msg])
+        resp = self._invoke_timeout(self.llm.invoke, [system, user_msg], label=f"Summary generation for {user_id}")
+        if resp is None:
+            return ""
 
         data = json.loads(resp.content)
         summaries = data.get("summaries")
@@ -264,7 +286,11 @@ class ConversationManager:
                 "- Example: Q: Anything special you want to bring along? A: I will bring my fishing rod. See you at the willow bend."
             )
 
-            full_resp = self.llm.invoke(prompt_content).content.strip()
+            resp = self._invoke_timeout(self.llm.invoke, prompt_content, label=f"Status check for {sender_id}")
+            if resp is None:
+                return True
+
+            full_resp = resp.content.strip()
             if full_resp.upper().startswith("YES"):
                 lines = full_resp.split('\n')
                 msg = lines[1].strip() if len(lines) > 1 else ""

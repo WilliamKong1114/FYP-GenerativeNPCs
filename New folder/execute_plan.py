@@ -11,26 +11,23 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from langchain_core.runnables import RunnableConfig
 from typing import Annotated
-from cachetools import TTLCache
-from planner import get_plan, store_plan, modify_plan, parse_plan
+from planner import get_plan, parse_plan
 from unity_comm import UnityClient
 from Secure.llm_config import observe_llm, dialogue_llm
 from World_Environment.environment_tree import EnvironmentTree
 from World_Environment.agent_state_manager import AgentStateManager
 from World_Environment.area_state_manager import AreaSystem
 from World_Environment.simulation_clock import SimulationClock
-from Skill_Manage.chroma_skill_lib import execute_skill, add_skill, query_skill
 from planner import generate_plans
 from conversation_manager import ConversationManager
 from preference_manager import PreferenceManager
 from commitment_manager import CommitmentManager
 from Interaction_manager import InteractManager
-from chroma_client import get_client
-chroma_client = get_client(path="./chroma_db")
-
 from agent_memory import AgentMemoryManager
 import chromaMemory_manager
 import reflection_manager
+from chroma_client import get_client
+chroma_client = get_client(path="./chroma_db")
 
 load_dotenv()
 agent_state_manager = AgentStateManager()
@@ -152,11 +149,8 @@ def get_graph():
 
 def find_target(action: str, agent_id: str):
     path_nodes = tree.find_suitable_location(action, agent_id)
-    
     target_node = path_nodes[-1]
     target_name = tree.get_location(target_node)
-    #path_str = ": ".join([n.name for n in path_nodes])
-    #action_desc = f"{action} @ {path_str}"
         
     if target_node.node_type == "object":
         obj_name = target_node.name
@@ -201,8 +195,6 @@ def record_observation(agent_id: str, area_name: str, obj_name: str, action: str
     chromaMemory_manager.add_memories([obs_text], user_id=agent_id, importance=3, type="observation", game_hour=clock.get_sim_hour())
     memory_manager.add_observation(agent_id, obs_text, area_name)
 
-    #reflection_manager.check_reflect(agent_id, clock, agent_executions, client)
-
 def execute_agent_action(agent_id, action, emojis, client, agent_data, cur_time, conv_manager, agent_executions):
     prev_obj = agent_data.get("current_target")
     prev_area = agent_data.get("current_area")
@@ -238,12 +230,11 @@ def execute_agent_action(agent_id, action, emojis, client, agent_data, cur_time,
         ts=time.time()
     )
 
-    #record_observation(agent_id, area_name, obj_name, action)
+    record_observation(agent_id, area_name, obj_name, action)
     #print("5. Record observation.")
     reflection_manager.check_reflect(agent_id, clock, agent_executions, client)
     #print("6. Check reflection.")
 
-    #Observe area state
     with area_manager.lock:
         obj_info = area_manager.get_area_state().get(obj_name)
 
@@ -258,7 +249,6 @@ def execute_agent_action(agent_id, action, emojis, client, agent_data, cur_time,
             area_manager.set_obj_state(obj_name, "occupied", agent_id)
 
         #time.sleep(2)
-        #duration = resolve_and_execute_skill(action_desc, target_name, client, agent_id, agent_data)
         agents_nearby = area_manager.get_agents_in_area()
 
     agent_data["current_target"] = obj_name
@@ -307,14 +297,12 @@ def main():
     
     client = UnityClient()
     interaction_manager = InteractManager()
-    #area_state_manager.start_listener(5006)
     conv_manager = ConversationManager(
         graph=get_graph(),
         clock=clock,
         debug_mode=False,
         preference_manager=preference_manager,
     )
-    #conv_manager = conv_manager  # Inject for handling incoming requests
     
     num_agents = len(agents_config)
     max_workers = min(num_agents + 1, 10)
@@ -376,7 +364,6 @@ def main():
 
                 generate_plans(agents_state, candidate_info)
 
-                # Reload freshly generated plans and clear transient runtime flags.
                 for config in agents_config:
                     agent_id = config["id"]
                     data = agent_executions[agent_id]
@@ -441,7 +428,6 @@ def main():
         shutdown = True
         executor.shutdown(wait=True, cancel_futures=False)
         print("[SHUTDOWN] All agent tasks completed")
-        #area_state_manager.stop_listener()
         client.close()
         print("[SHUTDOWN] All connections closed")
         agent_state_manager.reset_agents()

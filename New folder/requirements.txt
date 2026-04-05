@@ -4,6 +4,7 @@ langchain
 langchain-core
 langchain-azure-ai
 azure-ai-inference
-streamlit
-pandas
-pytest
+langgraph
+cachetools
+flask
+typing-extensions
