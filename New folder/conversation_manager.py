@@ -19,7 +19,7 @@ load_dotenv()
 
 CONVERSATION_COOLDOWN = 200
 MIN_CONVERSATION_TURNS = 6
-MAX_TERNS = 12
+MAX_TERNS = 10
 EXTRA_TURNS_PER_PARTICIPANT = 2
 
 class ConversationManager:
@@ -157,7 +157,9 @@ class ConversationManager:
         if client and dialogue_lines:
             client.update_dialogue(agent_ids[0], dialogue_lines, agent_ids)
             client.wait_for_conv_finish(agent_ids[0])
+            print(f"(With client) Conversation finished for {', '.join(agent_ids)}. Dialogue:\n" + "\n".join(dialogue_lines))
         else:
+            print(f"(No client) Conversation finished for {', '.join(agent_ids)}. Dialogue:\n" + "\n".join(dialogue_lines))
             for a_id in agent_ids:
                 if a_id in agent_executions:
                     agent_executions[a_id]["is_chatting"] = False

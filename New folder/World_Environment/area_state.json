@@ -104,6 +104,159 @@
           "state": "empty"
         }
       ]
+    },    {
+      "name": "House_Auden",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Auden",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Auden",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Auden",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Auden",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Auden",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },    {
+      "name": "House_Landan",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Landan",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Landan",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Landan",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Landan",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Landan",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "House_Marley",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Marley",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Marley",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Marley",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Marley",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Marley",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "House_Kaelyn",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Kaelyn",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Kaelyn",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Kaelyn",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Kaelyn",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Kaelyn",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
+    },
+    {
+      "name": "House_Lilyana",
+      "type": "area",
+      "children": [
+        {
+          "name": "House_Lilyana",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Table_Lilyana",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Bed_Lilyana",
+          "type": "object",
+          "state": "empty"
+        },
+                {
+          "name": "Storage_Lilyana",
+          "type": "object",
+          "state": "empty"
+        },
+        {
+          "name": "Hearth_Lilyana",
+          "type": "object",
+          "state": "empty"
+        }
+      ]
     },
     {
       "name": "Church",

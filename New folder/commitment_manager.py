@@ -139,7 +139,11 @@ class CommitmentManager:
         
         invite_info = json.loads(response)
         target_id = invite_info.get("invitee")
-        
+        inviter_id = invite_info.get("initiator")
+        if not target_id or not inviter_id  or target_id not in agent_executions or inviter_id not in agent_executions:
+            print(f"[COMMITMENT] Invalid invitation format.")
+            return
+
         existing_commitment = self.get_commitments(target_id)
         if existing_commitment and len(existing_commitment) >= MAXIMUM_COMMITMENTS:
             print(f"[COMMITMENT] Skipping commitment check for {target_id} due to already existing commitments [{MAXIMUM_COMMITMENTS}].")

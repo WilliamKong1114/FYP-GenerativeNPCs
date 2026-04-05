@@ -317,7 +317,7 @@ def main():
     #conv_manager = conv_manager  # Inject for handling incoming requests
     
     num_agents = len(agents_config)
-    max_workers = min(num_agents + 1, 20)
+    max_workers = min(num_agents + 1, 10)
     executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Agent")
     
     agent_executions = {
@@ -429,7 +429,7 @@ def main():
 
             if simulation_active:
                 current_time = clock.get_time_string()
-                if agent_state_manager.state.get("time") != current_time:
+                if agent_state_manager.get_time() != current_time:
                     agent_state_manager.set_time(current_time)
                     client.update_time(current_time)
                 time.sleep(0.05)

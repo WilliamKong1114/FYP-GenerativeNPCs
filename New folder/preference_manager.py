@@ -19,7 +19,7 @@ class PreferenceDB:
         os.makedirs(base_dir, exist_ok=True)
         db_path = os.path.join(base_dir, f"{agent_id}_preferences.db")
         self.conn = sqlite3.connect(db_path, isolation_level=None, check_same_thread=False)
-        #self._ensure_schema()
+        self._ensure_schema()
 
     def _ensure_schema(self):
         self.conn.execute("""

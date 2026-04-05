@@ -194,6 +194,7 @@ class UnityClient:
         current_target = agent_executions.get("current_target")
                 
         if action == "conversation_finished":
+            print(f"[TCP] Received conversation_finished: agent={agent_id}, partner={partner_id}")
             if agent_id and agent_id in agent_executions:
                 agent_executions[agent_id]["is_chatting"] = False
                 agent_executions[agent_id]["is_busy_until"] = time.time() + 1
@@ -272,7 +273,7 @@ class UnityClient:
         while time.time() - start_time < timeout:
             messages = self.receive_msg(agent_id)
             if not messages:
-                return False
+                continue
             for msg in messages:
                 if msg.startswith("{"):
                     cmd = json.loads(msg)
@@ -285,6 +286,8 @@ class UnityClient:
         start_time = time.time()
         while time.time() - start_time < timeout:
             message = self.receive_msg(agent_id)
+            if not message:
+                continue
             if f"ARRIVED:{agent_id}" in message:
                 #print(f"[TCP] {agent_id} arrived")
                 return True

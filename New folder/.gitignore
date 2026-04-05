@@ -3,6 +3,8 @@
 /Unity_Script/
 /tests/
 /Skill_Manage/
+/Project_Info/
+/tools/
 
 # Local files
 /debug_server.py

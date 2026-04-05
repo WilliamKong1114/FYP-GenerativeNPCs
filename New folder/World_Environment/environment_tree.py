@@ -158,12 +158,15 @@ class EnvironmentTree:
             ("Lona", "Bakery"): ["Table_Bakery", "Storage_Bakery"],
             ("Heath", "Bakery"): ["Table_Bakery", "Storage_Bakery"],
             ("Warwicke", "Blacksmith"): ["Table_Blacksmith", "Storage_Blacksmith"],
-            ("Lona", "Bed_Wilton"): ["Bed_Wilton"],
-            ("Lona", "House_Wilton"): ["House_Wilton"],
-            ("Lona", "Hearth_Wilton"): ["Hearth_Wilton"],
-            ("Heath", "Bed_Wilton"): ["Bed_Wilton"],
-            ("Heath", "House_Wilton"): ["House_Wilton"],
-            ("Heath", "Hearth_Wilton"): ["Hearth_Wilton"],
+            ("Auden", "Tavern"): ["Table_Tavern", "Storage_Tavern"],
+            ("Landan", "Carpenter"): ["Table_Carpenter", "Storage_Carpenter"],
+            ("Kaelyn", "Tavern"): ["Table_Tavern", "Storage_Tavern"],
+            ("Lona", "Bed"): ["Bed_Wilton"],
+            ("Lona", "House"): ["House_Wilton"],
+            ("Lona", "Hearth"): ["Hearth_Wilton"],
+            ("Heath", "Bed"): ["Bed_Wilton"],
+            ("Heath", "House"): ["House_Wilton"],
+            ("Heath", "Hearth"): ["Hearth_Wilton"],
         }
 
         for n in type_1:

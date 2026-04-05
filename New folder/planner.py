@@ -292,6 +292,10 @@ def init_plan(user_id: str, background: Optional[str], candidate_info: List[Dict
 
 def generate_plans(agents_data: Dict[str, Any], candidate_info: List[Dict]):
     agent_items = [(uid, info.get("persona")) for uid, info in agents_data.items()]
+    if not agent_items:
+        print("[Planner] No agents to generate plans for.")
+        return []
+
     max_workers = min(len(agent_items), 5)
 
     results = []
@@ -316,6 +320,26 @@ def generate_plans(agents_data: Dict[str, Any], candidate_info: List[Dict]):
     print(f"[Planner] Done. {len(results)} plans stored.")
     return [uid for uid, _ in results]
 
+def generate_plans_for_missing_agents(agents_data: Dict[str, Any], candidate_info: List[Dict]):
+    eligible_agents = {
+        uid: info
+        for uid, info in agents_data.items()
+        if get_plan_id(uid) is None
+    }
+    skipped_count = len(agents_data) - len(eligible_agents)
+    print(f"[Planner] Found {len(eligible_agents)} agents without existing plans. Skipping {skipped_count} agents with existing plans.")
+    return generate_plans(eligible_agents, candidate_info)
+
+def generate_plans_for_specific_agents(agents_data: Dict[str, Any], candidate_info: List[Dict], target_agent_ids: List[str]):
+    target_set = set(target_agent_ids)
+    eligible_agents = {uid: info for uid, info in agents_data.items() if uid in target_set}
+    missing_ids = sorted(target_set - set(eligible_agents.keys()))
+
+    if missing_ids:
+        print(f"[Planner] Agent IDs not found in state file: {missing_ids}")
+
+    return generate_plans(eligible_agents, candidate_info)
+
 if __name__ == "__main__":
     monitor.start()
     AGENT_STATE_DIR = os.path.join(BASE_DIR, "World_Environment", "agent_state.json")
@@ -326,31 +350,53 @@ if __name__ == "__main__":
     tree.load()
     candidate_info = tree.build_area_list(tree.root)
 
-    agents = agent_data.get("agents")
-    agent_items = [(uid, info.get("persona")) for uid, info in agents.items()]
-    max_workers = min(len(agent_items), 5)
+    agents = agent_data.get("agents", {})
 
-    results: list = []
-    print(f"[Planner] Generating plans for {len(agent_items)} agents with {max_workers} workers...")
-    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="Planner") as executor:
-        futures = {
-            executor.submit(init_plan, uid, persona, candidate_info): uid
-            for uid, persona in agent_items
-        }
-        for future in as_completed(futures):
-            uid = futures[future]
-            plans = future.result()
-            if plans is not None:
-                results.append((uid, plans))
-                print(f"[Planner] Generated plan for {uid}")
+    menu_options = {
+        "1": {
+            "description": "Generate plans only for agents without existing plans",
+            "function": lambda: generate_plans_for_missing_agents(agents, candidate_info),
+            "print_result": lambda generated: print(
+                "Generated plans for: " + ", ".join(generated) if generated else "No plans generated."
+            ),
+        },
+        "2": {
+            "description": "Generate plans for specific agent IDs",
+            "function": lambda: generate_plans_for_specific_agents(
+                agents,
+                candidate_info,
+                [item.strip() for item in input("Enter agent IDs (comma-separated): ").split(",") if item.strip()],
+            ),
+            "print_result": lambda generated: print(
+                "Generated plans for: " + ", ".join(generated) if generated else "No plans generated."
+            ),
+        },
+    }
+
+    while True:
+        try:
+            menu_text = (
+                "\nPlanner Command Interface\n"
+                + "\n".join(f"{key}) {opt['description']}" for key, opt in menu_options.items())
+                + "\nChoose (or 'exit' to quit): "
+            )
+            choice = input(menu_text).strip()
+
+            if not choice:
+                continue
+            if choice.lower() == "exit":
+                break
+            if choice in menu_options:
+                result = menu_options[choice]["function"]()
+                menu_options[choice]["print_result"](result)
             else:
-                print(f"[Planner] Skipping store for {uid} due to generation error")
-
-    print(f"[Planner] Storing plans for {len(results)} agents...")
-    for uid, plans in results:
-        child_plan_2 = plans["child_plan_2"]
-        store_plan([child_plan_2], user_id=uid)
-        print(f"[Planner] Stored plan for {uid}")
+                print("Invalid choice. Try again.")
+        except KeyboardInterrupt:
+            print("\nExiting.")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
 
     monitor.report()
 
