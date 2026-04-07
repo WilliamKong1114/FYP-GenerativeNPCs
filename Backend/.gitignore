@@ -1,10 +1,10 @@
 /archive/
-/Secure/
+#/Secure/
 /Unity_Script/
 /tests/
 /Skill_Manage/
 /Project_Info/
-/tools/
+#/tools/
 
 # Local files
 /debug_server.py

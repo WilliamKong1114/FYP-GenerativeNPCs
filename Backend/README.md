@@ -25,28 +25,27 @@ Different modules are implemented for agents to corredinate with. There are a to
 
 ## Setup
 
-1. Create and activate a virtual environment
+1. Create and activate a virtual environment with python version of 3.12.0
    - Windows PowerShell
-     - `python -m venv .venv`
-     - `.\.venv\Scripts\Activate.ps1`
+   - `python -m venv .venv`
+   - `.\.venv\Scripts\Activate.ps1`
 
 2. Install Python dependencies
    - `pip install -r requirements.txt`
 
 3. Configure credentials
+   - `Secure/llm_config.py` reads `GITHUB_TOKEN` from environment variables. Put it in `.env`.
+     Example `.env`: `GITHUB_TOKEN=...`
 
-   `Secure/llm_config.py` reads `GITHUB_TOKEN` from environment variables. Put it in `.env`.
-   Example `.env`: `GITHUB_TOKEN=...`
+   - Go to the github account settings, then Developer settings -> Personal access tokens -> Tokens (classic) to generate a token.
+     `https://github.com/settings/tokens`
 
 ## Running the simulation
 
-1. Start Unity first
-   The Python runtime connects to Unity at `127.0.0.1:5005`, so Unity should be listening on that port.
+1. Run the Unity Scene first
 
 2. Run the main loop
    - `python execute_plan.py`
-
-If Unity is not running or the port is blocked, the Python process will fail when it tries to connect.
 
 ## Configuring agents
 
