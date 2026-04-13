@@ -86,6 +86,9 @@ class ConversationManager:
                         partner_id = next((pid for pid in agent_ids if pid != a_id), None)
                         client.set_chatting(a_id, "start", partner_id=partner_id)
                 self.handle_conversation(area, group, agent_executions=agent_executions, client=client, session_id=session_id)
+            except Exception as e:
+                print(f"[CONV] Error for {agent_ids}: {e}\n{traceback.format_exc()}")
+            finally:
                 if client:
                     for a_id in agent_ids:
                         partner_id = next((pid for pid in agent_ids if pid != a_id), None)
@@ -94,13 +97,6 @@ class ConversationManager:
                     if a_id in agent_executions:
                         agent_executions[a_id]["is_chatting"] = False
                         agent_executions[a_id]["is_busy_until"] = time.time() + 1
-            except Exception as e:
-                print(f"[CONV] Error for {agent_ids}: {e}\n{traceback.format_exc()}")
-                for a_id in agent_ids:
-                    if a_id in agent_executions:
-                        agent_executions[a_id]["is_chatting"] = False
-                        agent_executions[a_id]["is_busy_until"] = time.time() + 5
-            finally:
                 with self._state_lock:
                     self._pending_conversations.discard(pair_key)
 
@@ -154,7 +150,7 @@ class ConversationManager:
         for turn in self.generate_dialogue(area, group, context):
             speaker = turn["speaker"]
             text = turn["text"]
-            print(f"\n[D] {speaker}: {text}")
+            #print(f"\n[D] {speaker}: {text}")
 
             if (self.debug_mode):
                 debug_convo.append(f'{speaker}: "{text}"')
@@ -177,9 +173,9 @@ class ConversationManager:
         if client and dialogue_lines:
             client.update_dialogue(agent_ids[0], dialogue_lines, agent_ids)
             client.wait_for_conv_finish(agent_ids[0])
-            print(f"(With client) Conversation finished for {', '.join(agent_ids)}. Dialogue:\n" + "\n".join(dialogue_lines))
+            print(f"(With client) Conversation finished")
         else:
-            print(f"(No client) Conversation finished for {', '.join(agent_ids)}. Dialogue:\n" + "\n".join(dialogue_lines))
+            print(f"(No client) Conversation finished")
             for a_id in agent_ids:
                 if a_id in agent_executions:
                     agent_executions[a_id]["is_chatting"] = False

@@ -193,7 +193,7 @@ def execute_agent_action(agent_id, action, emojis, client, agent_data, cur_time,
     reflection_manager.check_reflect(agent_id, clock, agent_executions, client)
     #print("6. Check reflection.")
 
-    with area_manager.lock:
+    with area_manager.lock: 
         obj_info = area_manager.get_area_state().get(obj_name)
 
         if not obj_info:

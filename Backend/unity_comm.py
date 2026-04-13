@@ -12,6 +12,25 @@ class UnityClient:
         self._connections = {}
         self._connection_lock = threading.Lock()
         self.dialogue_cache = {}
+        self._conv_finished_events = set()
+        self._conv_finished_lock = threading.Lock()
+
+    def _mark_conv_finished(self, agent_id, partner_id):
+        if not agent_id:
+            return
+        with self._conv_finished_lock:
+            self._conv_finished_events.add((str(agent_id), str(partner_id) if partner_id else None))
+
+    def _consume_conv_finished(self, agent_id) -> bool:
+        if not agent_id:
+            return False
+        agent_id = str(agent_id)
+        with self._conv_finished_lock:
+            for (a_id, p_id) in list(self._conv_finished_events):
+                if a_id == agent_id or p_id == agent_id:
+                    self._conv_finished_events.discard((a_id, p_id))
+                    return True
+        return False
 
     @staticmethod
     def _cache_key(pair_key: tuple, session_id: str = None):
@@ -195,13 +214,7 @@ class UnityClient:
                 
         if action == "conversation_finished":
             print(f"[TCP] Received conversation_finished: agent={agent_id}, partner={partner_id}")
-            if agent_id and agent_id in agent_executions:
-                agent_executions[agent_id]["is_chatting"] = False
-                agent_executions[agent_id]["is_busy_until"] = time.time() + 1
-
-            if partner_id and partner_id in agent_executions:
-                agent_executions[partner_id]["is_chatting"] = False
-                agent_executions[partner_id]["is_busy_until"] = time.time() + 1
+            self._mark_conv_finished(agent_id, partner_id)
             return
 
         if action != "user_chat":
@@ -271,15 +284,10 @@ class UnityClient:
     def wait_for_conv_finish(self, agent_id: str, timeout: float = 300.0):
         start_time = time.time()
         while time.time() - start_time < timeout:
-            messages = self.receive_msg(agent_id)
-            if not messages:
-                continue
-            for msg in messages:
-                if msg.startswith("{"):
-                    cmd = json.loads(msg)
-                    if cmd.get("action") == "conversation_finished":
-                        print(f"[TCP] User finished reading. Resuming agents.")
-                        return True
+            if self._consume_conv_finished(agent_id):
+                print(f"[TCP] User finished reading. Resuming agents.")
+                return True
+            time.sleep(0.05)
         return False
 
     def wait_for_arrival(self, agent_id: str, timeout: float = 10.0):        

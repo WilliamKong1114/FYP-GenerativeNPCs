@@ -1,14 +1,14 @@
 {
-    "date": "2026-04-07",
+    "date": "2026-04-13",
     "models": {
         "openai/gpt-4o-mini": 0,
-        "openai/gpt-4.1-mini": 9,
-        "meta/Llama-3.2-11B-Vision-Instruct": 46,
-        "meta/Meta-Llama-3.1-8B-Instruct": 79,
-        "mistral-ai/Ministral-3B": 2,
+        "openai/gpt-4.1-mini": 8,
+        "meta/Llama-3.2-11B-Vision-Instruct": 22,
+        "meta/Meta-Llama-3.1-8B-Instruct": 0,
+        "mistral-ai/Ministral-3B": 3,
         "microsoft/Phi-4": 4,
         "cohere/cohere-command-a": 0,
-        "openai/gpt-4.1-nano": 122,
+        "openai/gpt-4.1-nano": 89,
         "mistral-ai/mistral-medium-2505": 24,
         "cohere/Cohere-command-r-08-2024": 0
     }

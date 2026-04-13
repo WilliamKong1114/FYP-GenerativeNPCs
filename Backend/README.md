@@ -42,10 +42,15 @@ Different modules are implemented for agents to corredinate with. There are a to
 
 ## Running the simulation
 
-1. Run the Unity Scene first
+1. Run the Unity Scene FIRST
 
 2. Run the main loop
    - `python execute_plan.py`
+
+## !!! Caution !!!
+
+- The observations function has now been turned on due to huge token consumption. It is suggested to turn it on for a few steps just for testing. Since running for a case of 5 agents will cause a total of 5 \* 33 = 165 API callings. And GitHub's maximum request per day is 150 per model.
+- To turn it on, go to line 191 and uncomment the cline. `#record_observation(agent_id, area_name, obj_name, action, area_state_manager=area_state_manager, memory_manager=memory_manager, clock=clock)`
 
 ## Configuring agents
 
