@@ -9,37 +9,44 @@
         {
           "name": "House_Wilton",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "enter home, visit, stand inside, return home"
         },
         {
           "name": "Table_Wilton",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "eat, dine, write, study, read"
         },
         {
           "name": "Bed_Wilton",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
         {
           "name": "Bed_Lona",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
         {
           "name": "Bed_Heath",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
         {
           "name": "Storage_Wilton",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store, retrieve, organize household goods"
         },
         {
           "name": "Hearth_Wilton",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "cook at home, roast, warm, heat food"
         }
       ]
     },
@@ -50,27 +57,32 @@
         {
           "name": "House_Eldrede",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "enter home, visit, stand inside, return home"
         },
         {
           "name": "Table_Eldrede",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "eat, dine, write, study, read"
         },
         {
           "name": "Bed_Eldrede",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
-                {
+        {
           "name": "Storage_Eldrede",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store, retrieve, organize household goods"
         },
         {
           "name": "Hearth_Eldrede",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "cook at home, roast, warm, heat food"
         }
       ]
     },
@@ -81,87 +93,104 @@
         {
           "name": "House_Warwicke",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "enter home, visit, stand inside, return home"
         },
         {
           "name": "Table_Warwicke",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "eat, dine, write, study, read"
         },
         {
           "name": "Bed_Warwicke",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
-                {
+        {
           "name": "Storage_Warwicke",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store, retrieve, organize household goods"
         },
         {
           "name": "Hearth_Warwicke",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "cook at home, roast, warm, heat food"
         }
       ]
-    },    {
+    },
+    {
       "name": "House_Auden",
       "type": "area",
       "children": [
         {
           "name": "House_Auden",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "enter home, visit, stand inside, return home"
         },
         {
           "name": "Table_Auden",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "eat, dine, write, study, read"
         },
         {
           "name": "Bed_Auden",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
-                {
+        {
           "name": "Storage_Auden",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store, retrieve, organize household goods"
         },
         {
           "name": "Hearth_Auden",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "cook at home, roast, warm, heat food"
         }
       ]
-    },    {
+    },
+    {
       "name": "House_Landan",
       "type": "area",
       "children": [
         {
           "name": "House_Landan",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "enter home, visit, stand inside, return home"
         },
         {
           "name": "Table_Landan",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "eat, dine, write, study, read"
         },
         {
           "name": "Bed_Landan",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
-                {
+        {
           "name": "Storage_Landan",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store, retrieve, organize household goods"
         },
         {
           "name": "Hearth_Landan",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "cook at home, roast, warm, heat food"
         }
       ]
     },
@@ -172,27 +201,32 @@
         {
           "name": "House_Marley",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "enter home, visit, stand inside, return home"
         },
         {
           "name": "Table_Marley",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "eat, dine, write, study, read"
         },
         {
           "name": "Bed_Marley",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
-                {
+        {
           "name": "Storage_Marley",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store, retrieve, organize household goods"
         },
         {
           "name": "Hearth_Marley",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "cook at home, roast, warm, heat food"
         }
       ]
     },
@@ -203,27 +237,32 @@
         {
           "name": "House_Kaelyn",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "enter home, visit, stand inside, return home"
         },
         {
           "name": "Table_Kaelyn",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "eat, dine, write, study, read"
         },
         {
           "name": "Bed_Kaelyn",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
-                {
+        {
           "name": "Storage_Kaelyn",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store, retrieve, organize household goods"
         },
         {
           "name": "Hearth_Kaelyn",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "cook at home, roast, warm, heat food"
         }
       ]
     },
@@ -234,27 +273,32 @@
         {
           "name": "House_Lilyana",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "enter home, visit, stand inside, return home"
         },
         {
           "name": "Table_Lilyana",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "eat, dine, write, study, read"
         },
         {
           "name": "Bed_Lilyana",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sleep, rest, nap"
         },
-                {
+        {
           "name": "Storage_Lilyana",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store, retrieve, organize household goods"
         },
         {
           "name": "Hearth_Lilyana",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "cook at home, roast, warm, heat food"
         }
       ]
     },
@@ -265,7 +309,8 @@
         {
           "name": "Church",
           "type": "area",
-          "state": "empty"
+          "state": "empty",
+          "usage": "pray, worship, attend service"
         }
       ]
     },
@@ -276,39 +321,45 @@
         {
           "name": "Table_Blacksmith",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "forge, smith, repair, sharpen, metalwork"
         },
         {
           "name": "ShopArea_Blacksmith",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "buy tools, customer, wait to purchase"
         },
         {
           "name": "Storage_Blacksmith",
           "type": "object",
-          "state": "empty"
-        } 
+          "state": "empty",
+          "usage": "store iron, retrieve tools, smith supplies"
+        }
       ]
     },
-        {
+    {
       "name": "Brewery",
       "type": "area",
       "children": [
         {
           "name": "Table_Brewery",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "brew, mash, ferment, make ale"
         },
         {
           "name": "ShopArea_Brewery",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "buy ale, customer, wait to purchase"
         },
         {
           "name": "Storage_Brewery",
           "type": "object",
-          "state": "empty"
-        } 
+          "state": "empty",
+          "usage": "store hops, retrieve barrels, brewery supplies"
+        }
       ]
     },
     {
@@ -318,18 +369,21 @@
         {
           "name": "Table_Bakery",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "open shop, make bread, knead dough, bake, pastry, shop work"
         },
         {
           "name": "ShopArea_Bakery",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "buy bread, customer, wait to purchase"
         },
         {
           "name": "Storage_Bakery",
           "type": "object",
-          "state": "empty"
-        } 
+          "state": "empty",
+          "usage": "store flour, retrieve ingredients, bakery supplies"
+        }
       ]
     },
     {
@@ -339,18 +393,21 @@
         {
           "name": "Table_Carpenter",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "carve, craft, assemble, woodwork, build"
         },
         {
           "name": "ShopArea_Carpenter",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "buy furniture, customer, wait to purchase"
         },
         {
           "name": "Storage_Carpenter",
           "type": "object",
-          "state": "empty"
-        } 
+          "state": "empty",
+          "usage": "store wood, retrieve lumber, carpenter supplies"
+        }
       ]
     },
     {
@@ -360,37 +417,44 @@
         {
           "name": "Table_Tavern",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "serve drinks, tavern work, bartend"
         },
         {
           "name": "WaitZone_Tavern",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "wait, queue, customer"
         },
         {
           "name": "Storage_Tavern",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "store ale, retrieve kegs, tavern supplies"
         },
         {
           "name": "Chair1_Tavern",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sit, drink, talk, rest as guest"
         },
         {
           "name": "Chair2_Tavern",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sit, drink, talk, rest as guest"
         },
         {
           "name": "Chair3_Tavern",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sit, drink, talk, rest as guest"
         },
         {
           "name": "Chair4_Tavern",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "sit, drink, talk, rest as guest"
         }
       ]
     },
@@ -401,7 +465,8 @@
         {
           "name": "Well",
           "type": "object",
-          "state": "empty"
+          "state": "empty",
+          "usage": "draw water, fetch water, fill bucket, fill jug"
         }
       ]
     },
@@ -412,12 +477,10 @@
         {
           "name": "River",
           "type": "area",
-          "state": "empty"
+          "state": "empty",
+          "usage": "wash, rinse, bathe, fetch water, fish"
         }
       ]
     }
   ]
 }
-
-
-

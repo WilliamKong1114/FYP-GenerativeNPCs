@@ -3,8 +3,11 @@ python-dotenv
 langchain
 langchain-core
 langchain-azure-ai
+langsmith
 azure-ai-inference
 langgraph
 cachetools
 flask
+requests
 typing-extensions
+pydantic

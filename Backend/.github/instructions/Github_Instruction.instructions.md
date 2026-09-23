@@ -84,15 +84,15 @@ Between 6:00–22:00 sim time (every 1 real second):
 
 ```python
 {
-  "agent_id": {
-    "persona": str,          # Personality description
-    "steps": [(time, action), ...],
-    "emojis": [str, ...],
-    "current_step": int,
-    "is_busy_until": float,  # time.time() cooldown
-    "is_chatting": bool,
-    "active_task": Future    # ThreadPoolExecutor future
-  }
+    "agent_id": {
+        "persona": str,  # Personality description
+        "steps": [(time, action), ...],
+        "emojis": [str, ...],
+        "current_step": int,
+        "is_busy_until": float,  # time.time() cooldown
+        "is_chatting": bool,
+        "active_task": Future,  # ThreadPoolExecutor future
+    }
 }
 ```
 

@@ -1,24 +1,33 @@
 import json
-import re
-import random
-import sqlite3
 import os
+import random
+import re
+import sqlite3
 import time
+
 from dotenv import load_dotenv
+
+from conversation_manager import ConversationManager
 from Secure.llm_config import impression_llm
 from World_Environment.agent_state_manager import AgentStateManager
-from conversation_manager import ConversationManager
 
 load_dotenv()
 
-PREFERENCE_LIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Preference_List")
-AGENT_STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "World_Environment", "agent_state.json")
+PREFERENCE_LIST_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "Preference_List"
+)
+AGENT_STATE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "World_Environment", "agent_state.json"
+)
+
 
 class PreferenceDB:
     def __init__(self, agent_id: str, base_dir: str = PREFERENCE_LIST_DIR):
         os.makedirs(base_dir, exist_ok=True)
         db_path = os.path.join(base_dir, f"{agent_id}_preferences.db")
-        self.conn = sqlite3.connect(db_path, isolation_level=None, check_same_thread=False)
+        self.conn = sqlite3.connect(
+            db_path, isolation_level=None, check_same_thread=False
+        )
         self._ensure_schema()
 
     def _ensure_schema(self):
@@ -34,30 +43,36 @@ class PreferenceDB:
 
     def init_relationship(self, target_id: str, score: float, relationship_type: str):
         ts = int(time.time())
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR IGNORE INTO preferences (target_agent_id, interaction_count, impression_score, relationship_type, modified_on)
             VALUES (?, ?, ?, ?, ?)
-        """, (target_id, "1", score, relationship_type, ts))
+        """,
+            (target_id, "1", score, relationship_type, ts),
+        )
 
     def get_score(self, target_id: str) -> float:
         row = self.conn.execute(
-            "SELECT impression_score FROM preferences WHERE target_agent_id=?", (target_id,)
+            "SELECT impression_score FROM preferences WHERE target_agent_id=?",
+            (target_id,),
         ).fetchone()
         if row is None:
             return None
         return row[0]
-    
+
     def get_relationship_type(self, target_id: str) -> str:
         row = self.conn.execute(
-            "SELECT relationship_type FROM preferences WHERE target_agent_id=?", (target_id,)
+            "SELECT relationship_type FROM preferences WHERE target_agent_id=?",
+            (target_id,),
         ).fetchone()
         if row is None:
             return None
         return row[0]
-    
+
     def get_interaction_count(self, target_id: str) -> int:
         row = self.conn.execute(
-            "SELECT interaction_count FROM preferences WHERE target_agent_id=?", (target_id,)
+            "SELECT interaction_count FROM preferences WHERE target_agent_id=?",
+            (target_id,),
         ).fetchone()
         if row is None:
             return None
@@ -77,24 +92,30 @@ class PreferenceDB:
             score = 5.0
         new_score = max(1.0, min(10.0, score + delta))
 
-        if (type != "Family"):
-            if (new_score >= 6.5):
-                type = 'Friend'
-            elif (new_score > 3.0 and new_score < 6.5):
-                type = 'Acquaintance'
+        if type != "Family":
+            if new_score >= 6.5:
+                type = "Friend"
+            elif new_score > 3.0 and new_score < 6.5:
+                type = "Acquaintance"
             else:
-                type = 'Stranger'
+                type = "Stranger"
 
         ts = int(time.time())
-        self.conn.execute("""
+        self.conn.execute(
+            """
             UPDATE preferences
             SET impression_score=?, interaction_count=?, relationship_type=?, modified_on=?
             WHERE target_agent_id=?
-        """, (new_score, count+1, type, ts, target_id))
+        """,
+            (new_score, count + 1, type, ts, target_id),
+        )
 
-def init_preference_lists(agent_state_path: str = AGENT_STATE_PATH, base_dir: str = PREFERENCE_LIST_DIR) -> list[str]:
+
+def init_preference_lists(
+    agent_state_path: str = AGENT_STATE_PATH, base_dir: str = PREFERENCE_LIST_DIR
+) -> list[str]:
     try:
-        with open(agent_state_path, "r", encoding="utf-8") as f:
+        with open(agent_state_path, encoding="utf-8") as f:
             payload = json.load(f)
         agents = payload.get("agents", {})
         if not isinstance(agents, dict):
@@ -112,6 +133,7 @@ def init_preference_lists(agent_state_path: str = AGENT_STATE_PATH, base_dir: st
         db.conn.close()
     return agent_ids
 
+
 class PreferenceManager:
     def __init__(self, base_dir: str = PREFERENCE_LIST_DIR):
         self.llm = impression_llm
@@ -123,7 +145,9 @@ class PreferenceManager:
             self._dbs[agent_id] = PreferenceDB(agent_id, self.base_dir)
         return self._dbs[agent_id]
 
-    def init_relationship(self, agent_id: str, target_id: str, score: float, relationship_type: str):
+    def init_relationship(
+        self, agent_id: str, target_id: str, score: float, relationship_type: str
+    ):
         self.get_db(agent_id).init_relationship(target_id, score, relationship_type)
 
     def get_relationship_type(self, agent_id: str, target_id: str) -> str:
@@ -150,7 +174,9 @@ class PreferenceManager:
         scores.sort(key=lambda x: x[1], reverse=True)
         return scores[0][0]
 
-    def init_impression(self, agent_id: str, persona: list, target_id: str, conv_log: str) -> float:
+    def init_impression(
+        self, agent_id: str, persona: list, target_id: str, conv_log: str
+    ) -> float:
         prompt = f"""
             You are {agent_id}. You have just had your first conversation with {target_id}.
             Your persona (this defines your preferences, values, and typical behavior): {persona}
@@ -170,16 +196,27 @@ class PreferenceManager:
 
         response = self.llm.invoke(prompt).content
         try:
-            match = re.search(r'\{.*?\}', response, re.DOTALL)
-            score = float(json.loads(match.group(0)).get("score", 3.0)) if match else 3.0
+            match = re.search(r"\{.*?\}", response, re.DOTALL)
+            score = (
+                float(json.loads(match.group(0)).get("score", 3.0)) if match else 3.0
+            )
         except Exception:
             score = 3.0
 
-        self.get_db(agent_id).init_relationship(target_id, score, 'Stranger')
-        print(f"Initialized impression for {agent_id} towards {target_id}: score={score}")
+        self.get_db(agent_id).init_relationship(target_id, score, "Stranger")
+        print(
+            f"Initialized impression for {agent_id} towards {target_id}: score={score}"
+        )
         return score
 
-    def update_impression(self, agent_id: str, persona: list, target_id: str, current_score: float, conv_log: str) -> float:
+    def update_impression(
+        self,
+        agent_id: str,
+        persona: list,
+        target_id: str,
+        current_score: float,
+        conv_log: str,
+    ) -> float:
         prompt = f"""
             You are {agent_id}, you just had a follow-up conversation with {target_id}.
             Your persona (this defines your preferences, values, and typical behavior): {persona}
@@ -220,14 +257,14 @@ class PreferenceManager:
             - The value must be a number (float) between -2.0 and +2.0.
             Return ONLY this JSON object, in this format: (delta: float)
             """
-        
+
         partner_type = self.get_db(agent_id).get_relationship_type(target_id)
         if partner_type == "Family":
             return 0.0
         response = self.llm.invoke(prompt).content
         try:
-            match = re.search(r'\{.*?\}', response, re.DOTALL)
-            delta = float(json.loads(match.group(0)).get('delta', 0.0))
+            match = re.search(r"\{.*?\}", response, re.DOTALL)
+            delta = float(json.loads(match.group(0)).get("delta", 0.0))
         except Exception:
             delta = 0.0
 
@@ -235,17 +272,21 @@ class PreferenceManager:
         print(f"Updated impression for {agent_id} towards {target_id}: delta={delta}")
         return delta
 
+
 def main():
     from execute_plan import get_graph
+
     pref_manager = PreferenceManager()
-    conv_manager = ConversationManager(graph=get_graph(), preference_manager=pref_manager)
+    conv_manager = ConversationManager(
+        graph=get_graph(), preference_manager=pref_manager
+    )
     agents_state = AgentStateManager().get_agent_state()
     agents_config = [
         {
             "id": name,
             "persona": data["persona"],
             "home_node": data["home_node"],
-            "home_area": data["home_area"]
+            "home_area": data["home_area"],
         }
         for name, data in agents_state.items()
     ]
@@ -259,12 +300,13 @@ def main():
             "is_busy_until": 0,
             "is_chatting": False,
             "is_reflecting": False,
-            "active_task": None,    # Track running future
+            "active_task": None,  # Track running future
             "current_target": config["home_node"],  # Track current target node
-            "current_area": config["home_area"],    # Track current area
+            "current_area": config["home_area"],  # Track current area
             "prev_target": None,
-            "prev_area": None
-        } for config in agents_config
+            "prev_area": None,
+        }
+        for config in agents_config
     }
 
     agent_id = "Jimmy"
@@ -272,9 +314,10 @@ def main():
     partner_id = pref_manager.select_partner(agents_config[0]["id"], potential_partners)
     group = [
         {"id": agent_id, "persona": agent_executions[agent_id]["persona"]},
-        {"id": partner_id, "persona": agent_executions[partner_id]["persona"]}
+        {"id": partner_id, "persona": agent_executions[partner_id]["persona"]},
     ]
     conv_manager.handle_conversation("Garden", group, agent_executions)
-    
+
+
 if __name__ == "__main__":
     main()

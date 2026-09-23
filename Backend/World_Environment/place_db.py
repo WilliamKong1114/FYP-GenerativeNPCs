@@ -1,11 +1,12 @@
-import sqlite3
 import json
-import uuid
 import os
-from typing import Optional, Dict, Any, List
+import sqlite3
+import uuid
+from typing import Any
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "Database", "places.db")
+
 
 def _get_conn(path: str = DB_PATH):
     conn = sqlite3.connect(path)
@@ -19,24 +20,33 @@ def _get_conn(path: str = DB_PATH):
     conn.commit()
     return conn
 
-def add_place(name: str, position, metadata: Optional[Dict[str, Any]] = None, path: str = DB_PATH) -> None:
+
+def add_place(
+    name: str, position, metadata: dict[str, Any] | None = None, path: str = DB_PATH
+) -> None:
     pos_text = ""
     if position:
-        pos_parts = [p.strip() for p in str(position).split(",")]  
+        pos_parts = [p.strip() for p in str(position).split(",")]
         if len(pos_parts) >= 2:
             pos_text = f"{float(pos_parts[0])},{float(pos_parts[1])}"
-    
+
     meta = json.dumps(metadata or {})
 
     conn = _get_conn(path)
     uid = str(uuid.uuid4())
-    conn.execute("INSERT OR REPLACE INTO places (uuid, name, position, metadata) VALUES (?, ?, ?, ?)", (uid, name, pos_text, meta))
+    conn.execute(
+        "INSERT OR REPLACE INTO places (uuid, name, position, metadata) VALUES (?, ?, ?, ?)",
+        (uid, name, pos_text, meta),
+    )
     conn.commit()
     conn.close()
 
-def get_place(name: str, path: str = DB_PATH) -> Optional[Dict[str, Any]]:
+
+def get_place(name: str, path: str = DB_PATH) -> dict[str, Any] | None:
     conn = _get_conn(path)
-    cur = conn.execute("SELECT uuid, name, position, metadata FROM places WHERE name = ?", (name, ))
+    cur = conn.execute(
+        "SELECT uuid, name, position, metadata FROM places WHERE name = ?", (name,)
+    )
     row = cur.fetchone()
     conn.close()
 
@@ -48,23 +58,30 @@ def get_place(name: str, path: str = DB_PATH) -> Optional[Dict[str, Any]]:
 
     return {"uuid": uid, "name": pname, "position": position, "metadata": meta}
 
-def list_places(path: str = DB_PATH) -> List[Dict[str, Any]]:
+
+def list_places(path: str = DB_PATH) -> list[dict[str, Any]]:
     conn = _get_conn(path)
-    cur = conn.execute("SELECT uuid, name, position, metadata FROM places ORDER BY name")
+    cur = conn.execute(
+        "SELECT uuid, name, position, metadata FROM places ORDER BY name"
+    )
     rows = cur.fetchall()
     conn.close()
     result = []
     for uid, name, pos_text, meta_text in rows:
         position = pos_text if pos_text else None
         meta = json.loads(meta_text) if meta_text and meta_text != "null" else {}
-        result.append({"uuid": uid, "name": name, "position": position, "metadata": meta})
+        result.append(
+            {"uuid": uid, "name": name, "position": position, "metadata": meta}
+        )
     return result
+
 
 def delete_place(name: str, path: str = DB_PATH) -> None:
     conn = _get_conn(path)
     conn.execute("DELETE FROM places WHERE name = ?", (name,))
     conn.commit()
     conn.close()
+
 
 def main() -> None:
     while True:
@@ -96,9 +113,9 @@ def main() -> None:
                     print("Name required")
                     continue
                 position = input("Position (x, y): ").strip()
-                #meta_in = input("Metadata as JSON (or leave blank): ").strip()
+                # meta_in = input("Metadata as JSON (or leave blank): ").strip()
                 pos_obj = position if position else None
-                #meta_obj = json.loads(meta_in) if meta_in else None
+                # meta_obj = json.loads(meta_in) if meta_in else None
                 add_place(name, pos_obj)
                 print("Added/updated place:", name)
 
@@ -129,6 +146,7 @@ def main() -> None:
         except Exception as e:
             print("Error:", e)
             continue
+
 
 if __name__ == "__main__":
     main()

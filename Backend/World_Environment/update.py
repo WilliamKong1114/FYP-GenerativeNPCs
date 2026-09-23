@@ -7,20 +7,22 @@ import sys
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT_DIR)
 
-from World_Environment.environment_tree import EnvironmentTree
 from World_Environment.area_state_manager import AreaSystem
+from World_Environment.environment_tree import EnvironmentTree
 
 area_state_manager = AreaSystem()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "area_state.json")
 AREAS_DIR = os.path.join(BASE_DIR, "areas")
 
+
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         print(f"Config file {CONFIG_FILE} not found.")
         return None
-    with open(CONFIG_FILE, 'r') as f:
+    with open(CONFIG_FILE) as f:
         return json.load(f)
+
 
 def process_node(tree, config_node, parent_node=None, valid_uuids=None):
     if valid_uuids is None:
@@ -29,9 +31,9 @@ def process_node(tree, config_node, parent_node=None, valid_uuids=None):
     name = config_node.get("name")
     node_type = config_node.get("type", "object")
     state = config_node.get("state", "empty")
-    
+
     current_node = None
-    
+
     if parent_node:
         for child in parent_node.children:
             if child.name == name:
@@ -44,11 +46,11 @@ def process_node(tree, config_node, parent_node=None, valid_uuids=None):
     if current_node:
         print(f"Updating existing node: {name}")
         updated = False
-        
+
         if current_node.state != state:
             current_node.state = state
             updated = True
-        
+
         if current_node.node_type != node_type:
             current_node.node_type = node_type
             updated = True
@@ -57,12 +59,7 @@ def process_node(tree, config_node, parent_node=None, valid_uuids=None):
             tree.save_node(current_node)
     else:
         print(f"Creating new node: {name} ({node_type})")
-        current_node = tree.add_node(
-            name, 
-            node_type, 
-            parent=parent_node, 
-            state=state
-        )
+        current_node = tree.add_node(name, node_type, parent=parent_node, state=state)
 
     if current_node:
         valid_uuids.add(current_node.uuid)
@@ -71,6 +68,7 @@ def process_node(tree, config_node, parent_node=None, valid_uuids=None):
     for child_config in config_children:
         process_node(tree, child_config, current_node, valid_uuids)
 
+
 def update_tree():
     config = load_config()
     if not config:
@@ -78,15 +76,15 @@ def update_tree():
 
     tree = EnvironmentTree()
     tree.load()
-    
+
     print("Updating Environment Tree from JSON...")
-    
+
     valid_uuids = set()
     process_node(tree, config, valid_uuids=valid_uuids)
-    
+
     all_uuids = set(tree.nodes.keys())
     to_remove = all_uuids - valid_uuids
-    
+
     if to_remove:
         print(f"Removing {len(to_remove)} obsolete nodes...")
         for uid in to_remove:
@@ -97,12 +95,13 @@ def update_tree():
 
     print("Environment Tree Updated.")
 
+
 def initialize_areas_db():
     tree = EnvironmentTree()
     tree.load()
-    
+
     area_mapping = {}
-    
+
     if tree.nodes:
         for node in tree.nodes.values():
             if node.node_type == "object" and node.parent:
@@ -119,11 +118,11 @@ def initialize_areas_db():
     for area_name, obj_names in area_mapping.items():
         manager = area_state_manager.get_manager(area_name)
         current_objects = manager.get_area_state()
-        
+
         for obj_name in obj_names:
             if obj_name not in current_objects:
                 manager.set_obj_state(obj_name, "empty", None)
-    
+
     print(f"[AreaStateManager] Synchronized {len(area_mapping)} area DB(s)")
 
     if os.path.exists(AREAS_DIR):
@@ -135,6 +134,7 @@ def initialize_areas_db():
                     os.remove(db_path)
                     area_state_manager.area_managers.pop(stem, None)
                     print(f"[AreaStateManager] Removed obsolete DB: {filename}")
+
 
 if __name__ == "__main__":
     update_tree()

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-import uuid
 import datetime
 import sqlite3
+import uuid
+from collections.abc import Iterable
 from pathlib import Path
-from typing import List, Dict, Any, Iterable, Optional, Tuple
+from typing import Any
+
 from agent_memory import AgentMemoryManager
 from chroma_client import get_client
 
 memory_manager = AgentMemoryManager()
 
-STANDARD_COLLECTIONS: Tuple[str, ...] = (
+STANDARD_COLLECTIONS: tuple[str, ...] = (
     "summary",
     "observation",
     "reflection",
@@ -19,6 +21,7 @@ STANDARD_COLLECTIONS: Tuple[str, ...] = (
 """ LEGACY_COLLECTION_ALIASES: Dict[str, Tuple[str, ...]] = {
     "summary": ("summaries", "memories", "memory"),
 }"""
+
 
 def _ensure_user_exists(user_id: str, path: str = "./chroma_db") -> None:
     """Auto-create a user_info row if the user is missing."""
@@ -46,8 +49,10 @@ def _ensure_user_exists(user_id: str, path: str = "./chroma_db") -> None:
         ],
     )
 
+
 def _chroma_sqlite_path(path: str) -> Path:
     return Path(path) / "chroma.sqlite3"
+
 
 def _connect_chroma_sqlite(path: str) -> sqlite3.Connection:
     db = _chroma_sqlite_path(path)
@@ -55,7 +60,8 @@ def _connect_chroma_sqlite(path: str) -> sqlite3.Connection:
         raise FileNotFoundError(f"Chroma sqlite file not found: {db}")
     return sqlite3.connect(str(db))
 
-def _load_collection_registry(path: str) -> Dict[str, Dict[str, Any]]:
+
+def _load_collection_registry(path: str) -> dict[str, dict[str, Any]]:
     """Return collection registry keyed by collection UUID (folder name).
 
     Includes collection name, dimension, and any stored schema/config JSON strings.
@@ -68,7 +74,7 @@ def _load_collection_registry(path: str) -> Dict[str, Dict[str, Any]]:
     finally:
         con.close()
 
-    reg: Dict[str, Dict[str, Any]] = {}
+    reg: dict[str, dict[str, Any]] = {}
     for cid, name, dim, dbid, config_json_str, schema_str in rows:
         reg[str(cid)] = {
             "id": str(cid),
@@ -80,7 +86,8 @@ def _load_collection_registry(path: str) -> Dict[str, Dict[str, Any]]:
         }
     return reg
 
-def _collection_counts(path: str) -> Dict[str, int]:
+
+def _collection_counts(path: str) -> dict[str, int]:
     """Count embeddings per collection using sqlite joins (fast, no full fetch)."""
     con = _connect_chroma_sqlite(path)
     try:
@@ -96,7 +103,8 @@ def _collection_counts(path: str) -> Dict[str, int]:
         con.close()
     return {str(cid): int(cnt) for cid, cnt in rows}
 
-def _collection_metadata_schema(path: str) -> Dict[str, Dict[str, List[str]]]:
+
+def _collection_metadata_schema(path: str) -> dict[str, dict[str, list[str]]]:
     """Infer metadata schema per collection from sqlite (keys + observed value types).
 
     Returns: {collection_id: {metadata_key: ["str", "int", ...]}}
@@ -121,9 +129,9 @@ def _collection_metadata_schema(path: str) -> Dict[str, Dict[str, List[str]]]:
     finally:
         con.close()
 
-    out: Dict[str, Dict[str, List[str]]] = {}
+    out: dict[str, dict[str, list[str]]] = {}
     for cid, key, string_cnt, int_cnt, float_cnt, bool_cnt in rows:
-        types: List[str] = []
+        types: list[str] = []
         if string_cnt:
             types.append("str")
         if int_cnt:
@@ -135,13 +143,14 @@ def _collection_metadata_schema(path: str) -> Dict[str, Dict[str, List[str]]]:
         out.setdefault(str(cid), {})[str(key)] = types
     return out
 
-def list_vector_tables(path: str = "./chroma_db") -> List[Dict[str, Any]]:
+
+def list_vector_tables(path: str = "./chroma_db") -> list[dict[str, Any]]:
     """List Chroma collections ("tables") with their UUID folder IDs and schema."""
     registry = _load_collection_registry(path)
     counts = _collection_counts(path)
     meta_schema = _collection_metadata_schema(path)
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for cid, info in sorted(registry.items(), key=lambda kv: (kv[1]["name"], kv[0])):
         results.append(
             {
@@ -153,6 +162,7 @@ def list_vector_tables(path: str = "./chroma_db") -> List[Dict[str, Any]]:
             }
         )
     return results
+
 
 def _resolve_collection_name_from_identifier(identifier: str, path: str) -> str:
     """Resolve either a collection UUID (folder name) or a collection name to name."""
@@ -175,7 +185,8 @@ def _resolve_collection_name_from_identifier(identifier: str, path: str) -> str:
 
     raise KeyError(f"No collection found for '{identifier}'")
 
-def _format_metadata_schema(schema: Dict[str, List[str]]) -> str:
+
+def _format_metadata_schema(schema: dict[str, list[str]]) -> str:
     if not schema:
         return "{}"
     parts = []
@@ -184,16 +195,17 @@ def _format_metadata_schema(schema: Dict[str, List[str]]) -> str:
         parts.append(f"{k}:{t}")
     return "{ " + ", ".join(parts) + " }"
 
+
 def list_users_from_vector_metadata(
     path: str = "./chroma_db",
-    collection_identifiers: Optional[Iterable[str]] = None,
-) -> List[str]:
+    collection_identifiers: Iterable[str] | None = None,
+) -> list[str]:
     """List distinct user_ids seen in Chroma embedding metadata (efficient, SQL-backed)."""
     registry = _load_collection_registry(path)
 
-    collection_ids: List[str]
+    collection_ids: list[str]
     if collection_identifiers:
-        resolved_ids: List[str] = []
+        resolved_ids: list[str] = []
         for ident in collection_identifiers:
             ident = (ident or "").strip()
             if not ident:
@@ -201,7 +213,7 @@ def list_users_from_vector_metadata(
 
             # If caller passes a logical table name, expand legacy aliases too.
             expanded_idents = [ident]
-            #if ident in LEGACY_COLLECTION_ALIASES:
+            # if ident in LEGACY_COLLECTION_ALIASES:
             #    expanded_idents.extend(list(LEGACY_COLLECTION_ALIASES.get(ident, ())))
 
             for expanded in expanded_idents:
@@ -209,7 +221,11 @@ def list_users_from_vector_metadata(
                     resolved_ids.append(expanded)
                     continue
                 # Resolve by name
-                matched = [cid for cid, info in registry.items() if str(info.get("name", "")) == expanded]
+                matched = [
+                    cid
+                    for cid, info in registry.items()
+                    if str(info.get("name", "")) == expanded
+                ]
                 if not matched:
                     matched = [
                         cid
@@ -244,18 +260,38 @@ def list_users_from_vector_metadata(
         con.close()
     return [str(r[0]) for r in rows if r and r[0] is not None]
 
+
 def ensure_standard_collections(path: str = "./chroma_db") -> None:
     client = get_client(path)
     for name in STANDARD_COLLECTIONS:
         client.get_or_create_collection(name)
 
+
 def add_user_info(user_id: str, info: str, path: str = "./chroma_db") -> str:
     client = get_client(path)
     col = client.get_or_create_collection("user_info")
-    col.upsert(ids=[user_id], documents=[info], metadatas=[{"type": "user_info", "user_id": user_id, "created_at": datetime.datetime.utcnow().isoformat()}])
+    col.upsert(
+        ids=[user_id],
+        documents=[info],
+        metadatas=[
+            {
+                "type": "user_info",
+                "user_id": user_id,
+                "created_at": datetime.datetime.utcnow().isoformat(),
+            }
+        ],
+    )
     return f"Created user info for {user_id}"
 
-def add_memories(docs: List[str], user_id: str, path: str = "./chroma_db", importance: int = 5, type: str = "summary", game_hour: int = 0) -> List[str]:
+
+def add_memories(
+    docs: list[str],
+    user_id: str,
+    path: str = "./chroma_db",
+    importance: int = 5,
+    type: str = "summary",
+    game_hour: int = 0,
+) -> list[str]:
 
     client = get_client(path)
     _ensure_user_exists(user_id, path)
@@ -265,17 +301,30 @@ def add_memories(docs: List[str], user_id: str, path: str = "./chroma_db", impor
         return []
 
     ids = [str(uuid.uuid4()) for _ in docs]
-    metas = [{
-        "type": type,
-        "user_id": user_id,
-        "importance": importance,
-        "created_at": game_hour,
-        "modified_on": game_hour,
-    } for _ in docs]
+    metas = [
+        {
+            "type": type,
+            "user_id": user_id,
+            "importance": importance,
+            "created_at": game_hour,
+            "modified_on": game_hour,
+        }
+        for _ in docs
+    ]
     col.add(ids=ids, documents=docs, metadatas=metas)
     return ids
 
-def _get_collection_memories( collection_name: str, query: Any, user_id: str, current_hours: int, partner_id: Optional[str] = None, path: str = "./chroma_db", target_count: int = 10, top_k: int = 5) -> str:
+
+def _get_collection_memories(
+    collection_name: str,
+    query: Any,
+    user_id: str,
+    current_hours: int,
+    partner_id: str | None = None,
+    path: str = "./chroma_db",
+    target_count: int = 10,
+    top_k: int = 5,
+) -> str:
     """Retrieve memories from a single collection using recency/importance/relevance scoring."""
     try:
         query_text = " ".join(query) if isinstance(query, list) else str(query)
@@ -297,7 +346,7 @@ def _get_collection_memories( collection_name: str, query: Any, user_id: str, cu
         if not docs:
             return "No memories found."
 
-        retrieved_memories: List[Tuple[str, float]] = []
+        retrieved_memories: list[tuple[str, float]] = []
         for doc, meta, dist in zip(docs, metas, dists):
             meta = meta or {}
             relevance = 1.0 / (1.0 + float(dist))
@@ -308,7 +357,11 @@ def _get_collection_memories( collection_name: str, query: Any, user_id: str, cu
             recency = pow(0.99, delta_t)
 
             final_score = (0.5 * recency) + (0.3 * importance) + (0.2 * relevance)
-            if partner_id and str(partner_id).strip() and str(partner_id).lower() in str(doc).lower():
+            if (
+                partner_id
+                and str(partner_id).strip()
+                and str(partner_id).lower() in str(doc).lower()
+            ):
                 final_score *= 1.5
 
             retrieved_memories.append((str(doc), final_score))
@@ -320,14 +373,42 @@ def _get_collection_memories( collection_name: str, query: Any, user_id: str, cu
         print(f"Error retrieving {collection_name} memory context: {e}")
         return ""
 
-def get_reflection(query: Any, user_id: str, current_hours: int, partner_id: Optional[str] = None, path: str = "./chroma_db") -> str:
-    return _get_collection_memories("reflection", query, user_id, current_hours, partner_id, path)
 
-def get_observation(query: Any, user_id: str, current_hours: int, partner_id: Optional[str] = None, path: str = "./chroma_db") -> str:
-    return _get_collection_memories("observation", query, user_id, current_hours, partner_id, path)
+def get_reflection(
+    query: Any,
+    user_id: str,
+    current_hours: int,
+    partner_id: str | None = None,
+    path: str = "./chroma_db",
+) -> str:
+    return _get_collection_memories(
+        "reflection", query, user_id, current_hours, partner_id, path
+    )
 
-def get_summary(query: Any, user_id: str, current_hours: int, partner_id: Optional[str] = None, path: str = "./chroma_db") -> str:
-    return _get_collection_memories("summary", query, user_id, current_hours, partner_id, path)
+
+def get_observation(
+    query: Any,
+    user_id: str,
+    current_hours: int,
+    partner_id: str | None = None,
+    path: str = "./chroma_db",
+) -> str:
+    return _get_collection_memories(
+        "observation", query, user_id, current_hours, partner_id, path
+    )
+
+
+def get_summary(
+    query: Any,
+    user_id: str,
+    current_hours: int,
+    partner_id: str | None = None,
+    path: str = "./chroma_db",
+) -> str:
+    return _get_collection_memories(
+        "summary", query, user_id, current_hours, partner_id, path
+    )
+
 
 def delete_user(user_id: str, path: str = "./chroma_db") -> str:
     client = get_client(path)
@@ -341,11 +422,12 @@ def delete_user(user_id: str, path: str = "./chroma_db") -> str:
     delete_conversations_for_user(user_id, path)
     return f"Deleted user {user_id} from db"
 
+
 def delete_memories_for_user(user_id: str, path: str = "./chroma_db") -> str:
     client = get_client(path)
     deleted_from = []
     errors = []
-    #collection_names = list(STANDARD_COLLECTIONS) + list(LEGACY_COLLECTION_ALIASES.get("summary", ()))
+    # collection_names = list(STANDARD_COLLECTIONS) + list(LEGACY_COLLECTION_ALIASES.get("summary", ()))
     collection_names = list(STANDARD_COLLECTIONS)
 
     for name in sorted(set(collection_names)):
@@ -360,6 +442,7 @@ def delete_memories_for_user(user_id: str, path: str = "./chroma_db") -> str:
         return f"Error deleting vector records for user {user_id}: {'; '.join(errors)}"
     return f"Deleted vector records for {user_id} from: {', '.join(deleted_from)}"
 
+
 def clear_collection_data(identifier: str, path: str = "./chroma_db") -> str:
     """Clear all records inside a specific collection (keep the collection itself)."""
     client = get_client(path)
@@ -373,9 +456,10 @@ def clear_collection_data(identifier: str, path: str = "./chroma_db") -> str:
 
     batch_size = 1000
     for start in range(0, len(ids), batch_size):
-        col.delete(ids=ids[start:start + batch_size])
+        col.delete(ids=ids[start : start + batch_size])
 
     return f"Cleared {len(ids)} record(s) from collection '{collection_name}'."
+
 
 def delete_collection(identifier: str, path: str = "./chroma_db") -> str:
     """Delete a specific collection entirely."""
@@ -383,6 +467,7 @@ def delete_collection(identifier: str, path: str = "./chroma_db") -> str:
     collection_name = _resolve_collection_name_from_identifier(identifier, path)
     client.delete_collection(collection_name)
     return f"Deleted collection '{collection_name}'."
+
 
 def manage_collection(identifier: str, action: str, path: str = "./chroma_db") -> str:
     action = (action or "").strip().lower()
@@ -392,20 +477,22 @@ def manage_collection(identifier: str, action: str, path: str = "./chroma_db") -
         return delete_collection(identifier, path)
     return "Invalid action. Use 'clear' or 'delete'."
 
+
 def delete_conversations_for_user(user_id: str, path: str = "./chroma_db") -> str:
     client = get_client(path)
     try:
         col = client.get_collection("conversations")
     except Exception:
         return f"No conversations found for {user_id}"
-        
+
     try:
         col.delete(where={"user_id": user_id})
         return f"Deleted conversations for {user_id}"
     except Exception as e:
         return f"Error deleting conversations for user {user_id}: {e}"
 
-def list_users_with_memories(path: str = "./chroma_db") -> List[Dict[str, Any]]:
+
+def list_users_with_memories(path: str = "./chroma_db") -> list[dict[str, Any]]:
     ensure_standard_collections(path)
     client = get_client(path)
     user_col = client.get_or_create_collection("user_info")
@@ -415,25 +502,31 @@ def list_users_with_memories(path: str = "./chroma_db") -> List[Dict[str, Any]]:
     user_docs = users_data.get("documents", []) or []
     user_info_map = {uid: doc for uid, doc in zip(user_ids, user_docs)}
 
-    vector_users = set(list_users_from_vector_metadata(path, collection_identifiers=STANDARD_COLLECTIONS))
+    vector_users = set(
+        list_users_from_vector_metadata(
+            path, collection_identifiers=STANDARD_COLLECTIONS
+        )
+    )
     all_known_uids = set(user_ids) | vector_users
 
     registry = _load_collection_registry(path)
     name_to_id = {info["name"]: cid for cid, info in registry.items()}
-    name_to_logical: Dict[str, str] = {}
+    name_to_logical: dict[str, str] = {}
     for logical in STANDARD_COLLECTIONS:
         name_to_logical[logical] = logical
-        #for alias in LEGACY_COLLECTION_ALIASES.get(logical, ()):
+        # for alias in LEGACY_COLLECTION_ALIASES.get(logical, ()):
         #    name_to_logical[alias] = logical
 
-    candidate_names: List[str] = []
+    candidate_names: list[str] = []
     for logical in STANDARD_COLLECTIONS:
         candidate_names.append(logical)
-        #candidate_names.extend(list(LEGACY_COLLECTION_ALIASES.get(logical, ())))
+        # candidate_names.extend(list(LEGACY_COLLECTION_ALIASES.get(logical, ())))
 
     table_ids = [name_to_id.get(n) for n in candidate_names if name_to_id.get(n)]
 
-    per_user_counts: Dict[str, Dict[str, int]] = {uid: {t: 0 for t in STANDARD_COLLECTIONS} for uid in all_known_uids}
+    per_user_counts: dict[str, dict[str, int]] = {
+        uid: {t: 0 for t in STANDARD_COLLECTIONS} for uid in all_known_uids
+    }
     if table_ids:
         placeholders = ",".join(["?"] * len(table_ids))
         con = _connect_chroma_sqlite(path)
@@ -457,20 +550,29 @@ def list_users_with_memories(path: str = "./chroma_db") -> List[Dict[str, Any]]:
         id_to_name = {cid: info["name"] for cid, info in registry.items()}
         for cid, uid, cnt in rows:
             raw_table_name = id_to_name.get(str(cid))
-            logical_table = name_to_logical.get(str(raw_table_name), str(raw_table_name))
+            logical_table = name_to_logical.get(
+                str(raw_table_name), str(raw_table_name)
+            )
             if logical_table in STANDARD_COLLECTIONS and uid in per_user_counts:
-                per_user_counts[uid][logical_table] = per_user_counts[uid].get(logical_table, 0) + int(cnt)
+                per_user_counts[uid][logical_table] = per_user_counts[uid].get(
+                    logical_table, 0
+                ) + int(cnt)
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for uid in sorted(all_known_uids):
         results.append(
             {
                 "user_id": uid,
-                "description": user_info_map.get(uid, "No description found in user_info"),
-                "counts": per_user_counts.get(uid, {t: 0 for t in STANDARD_COLLECTIONS}),
+                "description": user_info_map.get(
+                    uid, "No description found in user_info"
+                ),
+                "counts": per_user_counts.get(
+                    uid, {t: 0 for t in STANDARD_COLLECTIONS}
+                ),
             }
         )
     return results
+
 
 def main() -> None:
     ensure_standard_collections()
@@ -482,7 +584,9 @@ def main() -> None:
         },
         "2": {
             "description": "Create new user",
-            "function": lambda: add_user_info(input("User id: "), input("User info text: ")),
+            "function": lambda: add_user_info(
+                input("User id: "), input("User info text: ")
+            ),
             "print_result": lambda result: print(result),
         },
         "3": {
@@ -521,9 +625,14 @@ def main() -> None:
         },
         "6": {
             "description": "List data schema of a table by name or UUID",
-            "function": lambda: (lambda ident: [t for t in list_vector_tables() if t["name"] == _resolve_collection_name_from_identifier(ident, "./chroma_db")][0])(
-                input("Enter collection name or UUID").strip()
-            ),
+            "function": lambda: (
+                lambda ident: [
+                    t
+                    for t in list_vector_tables()
+                    if t["name"]
+                    == _resolve_collection_name_from_identifier(ident, "./chroma_db")
+                ][0]
+            )(input("Enter collection name or UUID").strip()),
             "print_result": lambda t: print(
                 "Name: {name}\nCollection ID: {cid}\nDimension: {dim}\nCount: {cnt}\nMetadata schema: {schema}\n".format(
                     name=t.get("name"),
@@ -537,26 +646,33 @@ def main() -> None:
         "7": {
             "description": "Collection maintenance (clear data or delete collection)",
             "function": lambda: (
-                (lambda ident, action: (
+                lambda ident, action: (
                     manage_collection(ident, action)
                     if action.lower() != "delete"
                     else (
                         manage_collection(ident, action)
-                        if input("Type DELETE to confirm collection deletion: ").strip() == "DELETE"
+                        if input("Type DELETE to confirm collection deletion: ").strip()
+                        == "DELETE"
                         else "Collection deletion canceled."
                     )
-                ))(
-                    input("Enter collection name or UUID: ").strip(),
-                    input("Action ('clear' or 'delete'): ").strip(),
                 )
+            )(
+                input("Enter collection name or UUID: ").strip(),
+                input("Action ('clear' or 'delete'): ").strip(),
             ),
             "print_result": lambda result: print(result),
-        }
+        },
     }
 
     while True:
         try:
-            menu_text = "\nChromaDB Data Manager\n" + "\n".join(f"{key}) {opt['description']}" for key, opt in menu_options.items()) + "\nChoose (or 'exit' to quit): "
+            menu_text = (
+                "\nChromaDB Data Manager\n"
+                + "\n".join(
+                    f"{key}) {opt['description']}" for key, opt in menu_options.items()
+                )
+                + "\nChoose (or 'exit' to quit): "
+            )
             choice = input(menu_text).strip()
 
             if not choice:
@@ -567,14 +683,15 @@ def main() -> None:
                 result = menu_options[choice]["function"]()
                 menu_options[choice]["print_result"](result)
             else:
-                print("Invalid choice. Try again.")    
-                    
+                print("Invalid choice. Try again.")
+
         except KeyboardInterrupt:
             print("\nExiting.")
             break
         except Exception as e:
             print(f"Error: {e}")
             continue
+
 
 if __name__ == "__main__":
     main()

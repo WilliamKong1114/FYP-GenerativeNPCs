@@ -1,9 +1,10 @@
+from pathlib import Path
+
 import chromadb
 import chromadb.config
-from pathlib import Path
-from typing import Dict
 
-_CLIENTS: Dict[str, chromadb.PersistentClient] = {}
+_CLIENTS: dict[str, chromadb.PersistentClient] = {}
+
 
 def get_client(path: str = "./chroma_db") -> chromadb.PersistentClient:
     if path in _CLIENTS:
@@ -17,7 +18,7 @@ def get_client(path: str = "./chroma_db") -> chromadb.PersistentClient:
         allow_reset=True,
         anonymized_telemetry=False,
     )
-    
+
     try:
         client = chromadb.PersistentClient(path=str(db_path), settings=settings)
         client.heartbeat()  # Always test connection

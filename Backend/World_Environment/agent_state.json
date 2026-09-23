@@ -17,7 +17,9 @@
             ],
             "home_node": "Bed_Wilton",
             "home_area": "House_Wilton",
-            "action": "Wilton is resting at home."
+            "action": "Wilton is resting at home.",
+            "role": "Bakery Owner",
+            "workplace": "Bakery"
         },
         "Lona": {
             "persona": [
@@ -35,7 +37,9 @@
             ],
             "home_node": "Bed_Lona",
             "home_area": "House_Wilton",
-            "action": "Lona is resting at home."
+            "action": "Lona is resting at home.",
+            "role": "Housewife & Bakery Assistant",
+            "workplace": "House & Bakery"
         },
         "Eldrede": {
             "persona": [
@@ -52,7 +56,9 @@
             ],
             "home_node": "Bed_Eldrede",
             "home_area": "House_Eldrede",
-            "action": "Eldrede is resting at home."
+            "action": "Eldrede is resting at home.",
+            "role": "Retired Farmer",
+            "workplace": null
         },
         "Warwicke": {
             "persona": [
@@ -70,7 +76,9 @@
             ],
             "home_node": "Bed_Warwicke",
             "home_area": "House_Warwicke",
-            "action": "Warwicke is resting at home."
+            "action": "Warwicke is resting at home.",
+            "role": "Blacksmith",
+            "workplace": "Forge"
         },
         "Heath": {
             "persona": [
@@ -88,7 +96,9 @@
             ],
             "home_node": "Bed_Heath",
             "home_area": "House_Wilton",
-            "action": "Heath is resting at home."
+            "action": "Heath is resting at home.",
+            "role": "Child",
+            "workplace": null
         },
         "Kaelyn": {
             "persona": [
@@ -106,7 +116,9 @@
             ],
             "home_node": "Bed_Kaelyn",
             "home_area": "House_Kaelyn",
-            "action": "Kaelyn is resting at home."
+            "action": "Kaelyn is resting at home.",
+            "role": "Tavern Owner",
+            "workplace": "Tavern"
         }
     }
 }
